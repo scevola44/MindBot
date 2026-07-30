@@ -1,0 +1,22 @@
+services:
+  mindbot:
+    build: .
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+      TELEGRAM__BOTTOKEN: ${TELEGRAM__BOTTOKEN}
+      TELEGRAM__ALLOWEDUSERIDS: ${TELEGRAM__ALLOWEDUSERIDS}
+      GIT__REMOTEURL: ${GIT__REMOTEURL}
+      GIT__BRANCH: ${GIT__BRANCH:-bot-inbox}
+      GIT__SSHKEYPATH: /run/secrets/git_ssh_key
+      GIT__KNOWNHOSTSPATH: /run/secrets/known_hosts
+      GIT__USERNAME: ${GIT__USERNAME:-MindBot}
+      GIT__USEREMAIL: ${GIT__USEREMAIL:-mindbot@localhost}
+      VAULT__ROOT: /vault
+    volumes:
+      - vault-data:/vault
+      - ${GIT_SSH_KEY_PATH:-./secrets/id_ed25519}:/run/secrets/git_ssh_key:ro
+      - ${GIT_KNOWN_HOSTS_PATH:-./secrets/known_hosts}:/run/secrets/known_hosts:ro
+
+volumes:
+  vault-data:
