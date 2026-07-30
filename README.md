@@ -81,6 +81,15 @@ dotnet run --project src/MindBot.Bot
 
 ## Running with Docker
 
+A pre-built image is published to the GitHub Container Registry on every push
+to `main` (tagged `latest`) and on every `vX.Y.Z` release tag (tagged with
+matching semver tags), so deploying no longer requires cloning the repository
+or building the image yourself:
+
+```
+ghcr.io/scevola44/mindbot:latest
+```
+
 ```bash
 mkdir -p secrets
 cp /path/to/your/deploy-key secrets/id_ed25519
@@ -95,7 +104,27 @@ GIT__BRANCH=bot-inbox
 TZ=Europe/London
 EOF
 
+docker compose up -d
+```
+
+`docker-compose.yml` pulls `ghcr.io/scevola44/mindbot:${MINDBOT_TAG:-latest}`
+by default — set `MINDBOT_TAG` in `.env` to pin a specific version. Only the
+`docker-compose.yml` and `.env` files are needed on the server; the rest of
+the repository is not required for deployment.
+
+If you're developing MindBot itself and want to build from source instead of
+pulling the published image, clone the repository and run:
+
+```bash
 docker compose up -d --build
+```
+
+GHCR images published from a private repository are private by default. Either
+make the package public in the repository's Packages settings, or authenticate
+the server once with a [personal access token](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry) that has `read:packages` scope:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u your-github-username --password-stdin
 ```
 
 `docker-compose.yml` mounts:
