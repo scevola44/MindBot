@@ -1,5 +1,6 @@
 services:
   mindbot:
+    image: ghcr.io/scevola44/mindbot:${MINDBOT_TAG:-latest}
     build: .
     restart: unless-stopped
     environment:
