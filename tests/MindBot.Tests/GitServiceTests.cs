@@ -84,6 +84,27 @@ public sealed class GitServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task EnsureRepositoryAsync_CalledAgainWithUnpushedLocalCommit_PreservesTheCommit()
+    {
+        var git = CreateGitService("bot-inbox");
+        await git.EnsureRepositoryAsync();
+
+        // Simulate a note committed locally while the remote was unreachable, so it was
+        // never pushed.
+        File.WriteAllText(Path.Combine(_vaultRoot, "unpushed-note.md"), "---\ncreated: now\n---\n\nHello\n");
+        var commitResult = await git.CommitAsync("Add note unpushed-note.md");
+        Assert.True(commitResult.Success, commitResult.ErrorMessage);
+
+        // Simulate a process restart: EnsureRepositoryAsync runs again against the same
+        // on-disk clone, with the commit above still un-pushed. It must not be discarded.
+        var result = await git.EnsureRepositoryAsync();
+
+        Assert.True(result.Success, result.ErrorMessage);
+        var log = RunGit(_vaultRoot, "log", "--oneline").StandardOutput;
+        Assert.Contains("Add note unpushed-note.md", log);
+    }
+
+    [Fact]
     public async Task FullPipeline_PullWriteCommitPush_LandsCommitOnRemote()
     {
         var git = CreateGitService("bot-inbox");

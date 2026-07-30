@@ -8,8 +8,10 @@ namespace MindBot.Core.Git;
 public interface IGitService
 {
     /// <summary>
-    /// Clones the repository if the vault root is empty, then checks out the configured
-    /// branch from origin if it exists, or creates it from the default branch and pushes it.
+    /// Clones the repository if the vault root is empty. Then, if the configured branch already
+    /// exists locally, simply checks it out (never resetting it to origin, so commits made
+    /// locally but not yet pushed survive a restart). Otherwise checks it out from origin if it
+    /// exists there, or creates it from the default branch and pushes it.
     /// Safe to call repeatedly (e.g. on every startup).
     /// </summary>
     Task<GitOperationResult> EnsureRepositoryAsync(CancellationToken cancellationToken = default);

@@ -52,6 +52,21 @@ public sealed class GitService : IGitService
             return identityResult;
         }
 
+        var localBranchResult = await LocalBranchExistsAsync(cancellationToken);
+        if (localBranchResult.Success)
+        {
+            var checkoutExistingResult = await RunGitAsync(["checkout", _gitOptions.Branch], cancellationToken);
+            if (!checkoutExistingResult.Success)
+            {
+                return checkoutExistingResult;
+            }
+
+            _logger.LogInformation(
+                "Branch '{Branch}' already exists locally; checked it out without resetting to origin so any un-pushed commits are preserved.",
+                _gitOptions.Branch);
+            return GitOperationResult.Ok;
+        }
+
         var fetchResult = await RunGitAsync(
             ["fetch", "origin", $"{_gitOptions.Branch}:refs/remotes/origin/{_gitOptions.Branch}"],
             cancellationToken);
@@ -123,6 +138,14 @@ public sealed class GitService : IGitService
         return await RunGitAsync(["config", "--local", "user.email", _gitOptions.UserEmail], cancellationToken);
     }
 
+    /// <summary>
+    /// Checks whether the configured branch already exists as a local ref. Used to avoid
+    /// resetting an existing local branch to origin's history, which would discard commits
+    /// made locally but not yet pushed (e.g. after a prior push failure).
+    /// </summary>
+    private Task<GitOperationResult> LocalBranchExistsAsync(CancellationToken cancellationToken) =>
+        RunGitAsync(["rev-parse", "--verify", "--quiet", $"refs/heads/{_gitOptions.Branch}"], cancellationToken, logFailureAsWarning: false);
+
     private Dictionary<string, string?> BuildEnvironment()
     {
         var sshCommand = $"ssh -i {_gitOptions.SshKeyPath} -o StrictHostKeyChecking=yes";
@@ -134,13 +157,14 @@ public sealed class GitService : IGitService
         return new Dictionary<string, string?> { ["GIT_SSH_COMMAND"] = sshCommand };
     }
 
-    private Task<GitOperationResult> RunGitAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) =>
-        RunGitInAsync(_vaultOptions.Root, arguments, cancellationToken);
+    private Task<GitOperationResult> RunGitAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken, bool logFailureAsWarning = true) =>
+        RunGitInAsync(_vaultOptions.Root, arguments, cancellationToken, logFailureAsWarning);
 
     private async Task<GitOperationResult> RunGitInAsync(
         string workingDirectory,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool logFailureAsWarning = true)
     {
         await _lock.WaitAsync(cancellationToken);
         try
@@ -148,11 +172,15 @@ public sealed class GitService : IGitService
             var result = await ProcessRunner.RunAsync("git", arguments, workingDirectory, BuildEnvironment(), cancellationToken);
             if (!result.Success)
             {
-                _logger.LogWarning(
-                    "git {Arguments} failed with exit code {ExitCode}: {Output}",
-                    string.Join(' ', arguments),
-                    result.ExitCode,
-                    result.CombinedOutput);
+                if (logFailureAsWarning)
+                {
+                    _logger.LogWarning(
+                        "git {Arguments} failed with exit code {ExitCode}: {Output}",
+                        string.Join(' ', arguments),
+                        result.ExitCode,
+                        result.CombinedOutput);
+                }
+
                 return GitOperationResult.Fail(result.CombinedOutput);
             }
 
