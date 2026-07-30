@@ -1,3 +1,7 @@
+A self-hosted .NET Worker Service that turns Telegram messages into notes in
+an Obsidian vault backed by a Git repository. Runs via docker compose on a
+private Linux server. Target the current .NET LTS.
+
 # MindBot — Claude Code Guidelines
 
 Technical constraints and project conventions for Claude-assisted development.
