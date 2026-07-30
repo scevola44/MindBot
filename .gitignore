@@ -39,6 +39,9 @@ ScaffoldingReadMe.txt
 # dotenv environment variables file
 .env
 
+# Local secrets mounted into the container (SSH keys, known_hosts)
+secrets/
+
 # Others
 ~$*
 *~

@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MindBot.Bot/MindBot.Bot.csproj" />
+    <Project Path="src/MindBot.Core/MindBot.Core.csproj" />
+    <Project Path="src/MindBot.Infrastructure/MindBot.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MindBot.Tests/MindBot.Tests.csproj" />
+  </Folder>
+</Solution>
