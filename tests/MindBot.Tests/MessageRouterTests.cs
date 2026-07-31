@@ -1,8 +1,14 @@
+using MindBot.Core.Commands;
 using MindBot.Core.Durability;
+using MindBot.Core.Health;
 using MindBot.Core.Ingest;
 using MindBot.Core.Notes;
+using MindBot.Core.Operations;
+using MindBot.Core.Options;
 using MindBot.Tests.Fakes;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace MindBot.Tests;
 
@@ -15,7 +21,23 @@ public class MessageRouterTests
     {
         var timeProvider = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
         var planner = new NotePlanner(timeProvider);
-        var router = new MessageRouter(planner, timeProvider, NullLogger<MessageRouter>.Instance);
+
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(timeProvider);
+        services.AddSingleton(Options.Create(new VaultOptions { Root = "/unused-in-these-tests" }));
+        services.AddSingleton<VaultOperationApplier>();
+        services.AddSingleton<IVaultOperationHandler, CreateNoteHandler>();
+        services.AddSingleton<IVaultOperationHandler, AppendToNoteHandler>();
+        services.AddSingleton(new HealthReportService(new HealthSnapshot(), new InMemoryWriteJobQueue(), timeProvider));
+        services.AddSingleton<ICommand, AppendCommand>();
+        services.AddSingleton<ICommand, StatusCommand>();
+        services.AddSingleton<ICommand, PreviewCommand>();
+        services.AddSingleton<ICommand, BareTextCommand>(); // catch-all: must stay last
+        services.AddSingleton<CommandDispatcher>();
+        services.AddSingleton<CommandExecutor>();
+
+        var executor = services.BuildServiceProvider().GetRequiredService<CommandExecutor>();
+        var router = new MessageRouter(planner, timeProvider, NullLogger<MessageRouter>.Instance, executor);
         return (router, new InMemoryIngestUnitOfWork());
     }
 

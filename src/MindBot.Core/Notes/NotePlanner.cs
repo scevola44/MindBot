@@ -10,14 +10,6 @@ namespace MindBot.Core.Notes;
 /// </summary>
 public sealed class NotePlanner(TimeProvider timeProvider)
 {
-    public NoteDraft PlanQuickNote(string messageText)
-    {
-        var created = timeProvider.GetLocalNow();
-        return new NoteDraft(
-            NoteFilenameFactory.CreateFromTimestamp(created),
-            NoteContentBuilder.Build(messageText, created));
-    }
-
     public NoteDraft PlanNamedNote(string name, string content)
     {
         var created = timeProvider.GetLocalNow();

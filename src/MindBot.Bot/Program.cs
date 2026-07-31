@@ -1,5 +1,6 @@
 using MindBot.Bot.Logging;
 using MindBot.Bot.Services;
+using MindBot.Core.Commands;
 using MindBot.Core.Durability;
 using MindBot.Core.Git;
 using MindBot.Core.Health;
@@ -47,6 +48,7 @@ builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = Tim
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddMindBotState();
+builder.Services.AddMindBotCommands();
 
 builder.Services.AddSingleton<IGitService, GitService>();
 builder.Services.AddSingleton<IVaultWriter, VaultNoteWriter>();
@@ -76,50 +78,13 @@ builder.Services.AddHostedService<TelegramPollingHostedService>();
 
 var app = builder.Build();
 
-var processStartedAt = app.Services.GetRequiredService<TimeProvider>().GetUtcNow();
-
-app.MapGet("/health", async (
-    HealthSnapshot snapshot,
-    IWriteJobQueue jobQueue,
-    TimeProvider timeProvider,
-    CancellationToken cancellationToken) =>
+// A degraded git state (un-pushed commits, dirty tree) is reported but does NOT fail the check: a
+// remote that is down for an hour is a condition this bot is designed to ride out, not a broken
+// container. Only a stalled poller or an unreachable state database is fatal.
+app.MapGet("/health", async (HealthReportService healthReportService, CancellationToken cancellationToken) =>
 {
-    var report = snapshot.Read();
-    var now = timeProvider.GetUtcNow();
-
-    // A degraded git state (un-pushed commits, dirty tree) is reported but does NOT fail the
-    // check: a remote that is down for an hour is a condition this bot is designed to ride out,
-    // not a broken container. Only a stalled poller or an unreachable state database is fatal.
-    bool stateStoreReachable;
-    try
-    {
-        await jobQueue.GetPendingCountAsync(cancellationToken);
-        stateStoreReachable = true;
-    }
-    catch (Exception)
-    {
-        stateStoreReachable = false;
-    }
-
-    // 3x the 30s long-poll timeout: one missed cycle is normal, three is not.
-    var lastPollOrStartup = report.LastSuccessfulPollAt ?? processStartedAt;
-    var pollStalled = now - lastPollOrStartup > TimeSpan.FromSeconds(180);
-
-    var healthy = stateStoreReachable && !pollStalled;
-
-    var payload = new
-    {
-        status = healthy ? "healthy" : "unhealthy",
-        degraded = report.Degraded,
-        lastSuccessfulPollUtc = report.LastSuccessfulPollAt,
-        lastSuccessfulPushUtc = report.LastSuccessfulPushAt,
-        queueDepth = report.QueueDepth,
-        unpushedCommitCount = report.UnpushedCommitCount,
-        workingTreeDirty = report.WorkingTreeDirty,
-        lastClassification = report.LastClassification,
-        stateStoreReachable,
-        pollStalled,
-    };
+    var payload = await healthReportService.BuildAsync(cancellationToken);
+    var healthy = payload.Status == "healthy";
 
     return Results.Json(payload, statusCode: healthy ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
 });
