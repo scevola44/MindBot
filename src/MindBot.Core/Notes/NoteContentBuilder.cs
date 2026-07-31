@@ -14,7 +14,7 @@ public static class NoteContentBuilder
     {
         var frontmatter = new NoteFrontmatter
         {
-            Created = created.ToString("yyyy-MM-ddTHH:mm:sszzz"),
+            Date = created.ToString("yyyy-MM-ddTHH:mm:sszzz"),
         };
 
         var yaml = Serializer.Serialize(frontmatter);

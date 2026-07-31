@@ -13,9 +13,9 @@ merges that branch into `main` by hand.
 - **Telegram**: long polling only (via the `Telegram.Bot` package), never webhooks.
 - **Authorisation**: only sender IDs listed in `TELEGRAM__ALLOWEDUSERIDS` may use
   the bot. Everyone else gets a flat refusal, and the attempt is logged.
-- **Notes**: each message becomes `{yyyy-MM-dd}T{HHmmss}-{slug}.md` in the vault,
-  with YAML frontmatter (`created`, `source: telegram`, `tags: [fleeting]`) and
-  the message body verbatim.
+- **Notes**: each message becomes `{yyyy-MM-dd}T{HHmmss}-{slug}.md` in the
+  vault's `05 - Fleeting` folder, with YAML frontmatter (`date`,
+  `tags: [WIP, MindBot]`) and the message body verbatim.
 - **Git**: the bot drives the `git` CLI directly (no LibGit2Sharp). It only ever
   reads from and writes to one dedicated branch (`GIT__BRANCH`, e.g. `bot-inbox`)
   and never merges, force-pushes, or rewrites history on it.
@@ -61,7 +61,7 @@ with a message naming the exact variable, instead of failing silently later.
 | `GIT__USERNAME` | no | Local `user.name` for commits (default `MindBot`). |
 | `GIT__USEREMAIL` | no | Local `user.email` for commits (default `mindbot@localhost`). |
 | `VAULT__ROOT` | yes | Absolute path to the local clone of the vault (typically a mounted named volume). |
-| `TZ` | no | Container timezone, used for the `created` frontmatter timestamp. |
+| `TZ` | no | Container timezone, used for the `date` frontmatter timestamp. |
 
 ## Running locally
 
