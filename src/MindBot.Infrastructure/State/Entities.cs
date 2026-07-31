@@ -20,6 +20,8 @@ public sealed class WriteJobEntity
 
     public long UpdateId { get; set; }
 
+    public string RelativeFolder { get; set; } = string.Empty;
+
     public string Filename { get; set; } = string.Empty;
 
     public string Content { get; set; } = string.Empty;
@@ -32,7 +34,7 @@ public sealed class WriteJobEntity
 
     public WriteJobStatus Status { get; set; }
 
-    public WriteJob ToDomain() => new(Id, UpdateId, Filename, Content, ChatId, SenderId, EnqueuedAt, Status);
+    public WriteJob ToDomain() => new(Id, UpdateId, RelativeFolder, Filename, Content, ChatId, SenderId, EnqueuedAt, Status);
 }
 
 public sealed class ConversationStateEntity

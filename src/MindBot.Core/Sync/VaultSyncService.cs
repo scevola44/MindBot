@@ -180,7 +180,7 @@ public sealed class VaultSyncService(
     {
         foreach (var job in jobs)
         {
-            await vaultWriter.WriteNoteAsync(job.Filename, job.Content, cancellationToken);
+            await vaultWriter.WriteNoteAsync(job.RelativeFolder, job.Filename, job.Content, cancellationToken);
         }
     }
 

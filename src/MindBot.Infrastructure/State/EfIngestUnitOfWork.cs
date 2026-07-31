@@ -107,7 +107,11 @@ public sealed class EfIngestUnitOfWork(
 
             // A pending job has claimed the name but has not been written to disk yet.
             var claimed = await db.WriteJobs
-                .AnyAsync(j => j.Status == WriteJobStatus.Pending && j.Filename == candidate, cancellationToken);
+                .AnyAsync(
+                    j => j.Status == WriteJobStatus.Pending
+                        && j.RelativeFolder == VaultLayout.FleetingFolder
+                        && j.Filename == candidate,
+                    cancellationToken);
 
             if (!claimed)
             {
@@ -116,8 +120,26 @@ public sealed class EfIngestUnitOfWork(
         }
     }
 
+    public async Task<string?> GetLatestNoteContentAsync(string relativeFolder, string filename, CancellationToken cancellationToken = default)
+    {
+        var pending = await db.WriteJobs
+            .Where(j => j.Status == WriteJobStatus.Pending && j.RelativeFolder == relativeFolder && j.Filename == filename)
+            .OrderByDescending(j => j.Id)
+            .Select(j => j.Content)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (pending is not null)
+        {
+            return pending;
+        }
+
+        var path = Path.Combine(vaultOptions.Root, relativeFolder, filename);
+        return File.Exists(path) ? await File.ReadAllTextAsync(path, cancellationToken) : null;
+    }
+
     public async Task EnqueueWriteJobAsync(
         long updateId,
+        string relativeFolder,
         string filename,
         string content,
         long chatId,
@@ -127,6 +149,7 @@ public sealed class EfIngestUnitOfWork(
         db.WriteJobs.Add(new WriteJobEntity
         {
             UpdateId = updateId,
+            RelativeFolder = relativeFolder,
             Filename = filename,
             Content = content,
             ChatId = chatId,
