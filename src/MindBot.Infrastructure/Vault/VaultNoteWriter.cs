@@ -6,9 +6,9 @@ namespace MindBot.Infrastructure.Vault;
 
 public sealed class VaultNoteWriter(IOptions<VaultOptions> vaultOptions) : IVaultWriter
 {
-    public async Task<string> WriteNoteAsync(string filename, string content, CancellationToken cancellationToken = default)
+    public async Task<string> WriteNoteAsync(string relativeFolder, string filename, string content, CancellationToken cancellationToken = default)
     {
-        var relativePath = VaultLayout.RelativeNotePath(filename);
+        var relativePath = Path.Combine(relativeFolder, filename);
         var path = VaultPathResolver.ResolveNotePath(vaultOptions.Value.Root, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, content, cancellationToken);

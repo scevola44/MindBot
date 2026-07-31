@@ -13,7 +13,7 @@ namespace MindBot.Core.Ingest;
 /// routing a message and durably queueing the resulting note commit or roll back together.
 /// </para>
 /// </summary>
-public sealed class MessageRouter(NotePlanner notePlanner, ILogger<MessageRouter> logger)
+public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProvider, ILogger<MessageRouter> logger)
 {
     public async Task<string> RouteAsync(
         IIngestUnitOfWork unitOfWork,
@@ -41,6 +41,12 @@ public sealed class MessageRouter(NotePlanner notePlanner, ILogger<MessageRouter
         {
             await unitOfWork.SetConversationAsync(chatId, new ConversationState(ConversationStage.AwaitingNoteName), cancellationToken);
             return "What would you like to name the note?";
+        }
+
+        if (string.Equals(command, "/task", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(command, "/todo", StringComparison.OrdinalIgnoreCase))
+        {
+            return await HandleTaskCommandAsync(unitOfWork, updateId, chatId, senderId, messageText, cancellationToken);
         }
 
         var state = await unitOfWork.GetConversationAsync(chatId, cancellationToken);
@@ -80,8 +86,66 @@ public sealed class MessageRouter(NotePlanner notePlanner, ILogger<MessageRouter
         CancellationToken cancellationToken)
     {
         var filename = await unitOfWork.ReserveFilenameAsync(draft.BaseFilename, cancellationToken);
-        await unitOfWork.EnqueueWriteJobAsync(updateId, filename, draft.Content, chatId, senderId, cancellationToken);
+        await unitOfWork.EnqueueWriteJobAsync(updateId, VaultLayout.FleetingFolder, filename, draft.Content, chatId, senderId, cancellationToken);
         return filename;
+    }
+
+    private async Task<string> HandleTaskCommandAsync(
+        IIngestUnitOfWork unitOfWork,
+        long updateId,
+        long chatId,
+        long senderId,
+        string messageText,
+        CancellationToken cancellationToken)
+    {
+        var items = ExtractTaskItems(messageText);
+        if (items.Count == 0)
+        {
+            return "Usage: /task <item> (send one item per line to add several at once).";
+        }
+
+        var now = timeProvider.GetLocalNow();
+        var date = DateOnly.FromDateTime(now.DateTime);
+        var folder = VaultLayout.TaskNoteFolder(date);
+        var filename = VaultLayout.TaskNoteFilename(date);
+
+        var existingContent = await unitOfWork.GetLatestNoteContentAsync(folder, filename, cancellationToken);
+        var content = TaskNoteContentBuilder.Append(existingContent, items, now);
+
+        await unitOfWork.EnqueueWriteJobAsync(updateId, folder, filename, content, chatId, senderId, cancellationToken);
+
+        return items.Count == 1
+            ? $"Added to {filename}."
+            : $"Added {items.Count} items to {filename}.";
+    }
+
+    /// <summary>
+    /// The first line's remainder after the /task or /todo token (if any) is the first item; every
+    /// other non-empty line is another item, letting a single message file several tasks at once.
+    /// </summary>
+    private static IReadOnlyList<string> ExtractTaskItems(string messageText)
+    {
+        var lines = messageText.Replace("\r\n", "\n").Split('\n');
+        var items = new List<string>();
+
+        var firstLine = lines[0].TrimStart();
+        var spaceIndex = firstLine.IndexOfAny([' ', '\t']);
+        var remainder = spaceIndex < 0 ? string.Empty : firstLine[(spaceIndex + 1)..].Trim();
+        if (remainder.Length > 0)
+        {
+            items.Add(remainder);
+        }
+
+        for (var i = 1; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim();
+            if (line.Length > 0)
+            {
+                items.Add(line);
+            }
+        }
+
+        return items;
     }
 
     private static string? ExtractCommand(string messageText)

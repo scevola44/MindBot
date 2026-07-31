@@ -13,8 +13,9 @@ public class MessageRouterTests
 
     private static (MessageRouter Router, InMemoryIngestUnitOfWork UnitOfWork) CreateRouter()
     {
-        var planner = new NotePlanner(new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero)));
-        var router = new MessageRouter(planner, NullLogger<MessageRouter>.Instance);
+        var timeProvider = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
+        var planner = new NotePlanner(timeProvider);
+        var router = new MessageRouter(planner, timeProvider, NullLogger<MessageRouter>.Instance);
         return (router, new InMemoryIngestUnitOfWork());
     }
 
@@ -153,5 +154,77 @@ public class MessageRouterTests
         await RouteAsync(router, unitOfWork, "/new@mybot");
 
         Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
+    }
+
+    [Fact]
+    public async Task RouteAsync_Task_CreatesDailyNote_WhenNoneExistsYet()
+    {
+        var (router, unitOfWork) = CreateRouter();
+
+        var reply = await RouteAsync(router, unitOfWork, "/task  Buy groceries");
+
+        Assert.Equal("Added to TODO - 2026-07-30.md.", reply);
+
+        var queued = Assert.Single(unitOfWork.Enqueued);
+        Assert.Equal("06 - Daily Notes/2026/07 - July", queued.RelativeFolder);
+        Assert.Equal("TODO - 2026-07-30.md", queued.Filename);
+        Assert.Contains("date: 2026-07-30T09:00", queued.Content);
+        Assert.Contains("last-modified: 2026-07-30T09:00", queued.Content);
+        Assert.Contains("- ToDo", queued.Content);
+        Assert.EndsWith("- [ ] Buy groceries\n", queued.Content);
+    }
+
+    [Fact]
+    public async Task RouteAsync_Task_SecondCallSameDay_AppendsAndPreservesOriginalDate()
+    {
+        var (router, unitOfWork) = CreateRouter();
+        await RouteAsync(router, unitOfWork, "/task Send mail", updateId: 1);
+
+        var reply = await RouteAsync(router, unitOfWork, "/task Buy groceries", updateId: 2);
+
+        Assert.Equal("Added to TODO - 2026-07-30.md.", reply);
+        Assert.Equal(2, unitOfWork.Enqueued.Count);
+
+        var second = unitOfWork.Enqueued[1];
+        Assert.Contains("date: 2026-07-30T09:00", second.Content);
+        Assert.Contains("- [ ] Send mail", second.Content);
+        Assert.Contains("- [ ] Buy groceries", second.Content);
+        Assert.True(second.Content.IndexOf("Send mail") < second.Content.IndexOf("Buy groceries"));
+    }
+
+    [Fact]
+    public async Task RouteAsync_Task_MultiLineMessage_AddsOneItemPerLine()
+    {
+        var (router, unitOfWork) = CreateRouter();
+
+        var reply = await RouteAsync(router, unitOfWork, "/task Task number 1\nTask number 2\nTask number 3");
+
+        Assert.Equal("Added 3 items to TODO - 2026-07-30.md.", reply);
+        var queued = Assert.Single(unitOfWork.Enqueued);
+        Assert.Contains("- [ ] Task number 1", queued.Content);
+        Assert.Contains("- [ ] Task number 2", queued.Content);
+        Assert.Contains("- [ ] Task number 3", queued.Content);
+    }
+
+    [Fact]
+    public async Task RouteAsync_TodoAlias_BehavesLikeTask()
+    {
+        var (router, unitOfWork) = CreateRouter();
+
+        var reply = await RouteAsync(router, unitOfWork, "/todo Buy groceries");
+
+        Assert.Equal("Added to TODO - 2026-07-30.md.", reply);
+        Assert.Single(unitOfWork.Enqueued);
+    }
+
+    [Fact]
+    public async Task RouteAsync_TaskWithNoItems_ReturnsUsage_AndQueuesNothing()
+    {
+        var (router, unitOfWork) = CreateRouter();
+
+        var reply = await RouteAsync(router, unitOfWork, "/task");
+
+        Assert.Contains("Usage:", reply);
+        Assert.Empty(unitOfWork.Enqueued);
     }
 }

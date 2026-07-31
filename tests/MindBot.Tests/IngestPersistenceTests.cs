@@ -76,7 +76,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         Assert.Equal(0, await Queue.GetPendingCountAsync());
 
         await using var unitOfWork = await Factory.BeginAsync();
-        await unitOfWork.EnqueueWriteJobAsync(1, "202607311200.md", "hello", 42, 7);
+        await unitOfWork.EnqueueWriteJobAsync(1, VaultLayout.FleetingFolder, "202607311200.md", "hello", 42, 7);
         await unitOfWork.MarkUpdateProcessedAsync(1);
         await unitOfWork.CommitAsync();
 
@@ -101,7 +101,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.EnqueueWriteJobAsync(200, "202607311200.md", "never committed", 42, 7);
+            await unitOfWork.EnqueueWriteJobAsync(200, VaultLayout.FleetingFolder, "202607311200.md", "never committed", 42, 7);
             await unitOfWork.MarkUpdateProcessedAsync(200);
             // Disposed without CommitAsync — the crash-before-commit case.
         }
@@ -134,6 +134,49 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         var filename = await unitOfWork.ReserveFilenameAsync("202607311200.md");
 
         Assert.Equal("202607311200-2.md", filename);
+    }
+
+    [Fact]
+    public async Task GetLatestNoteContentAsync_NoteMissing_ReturnsNull()
+    {
+        await using var unitOfWork = await Factory.BeginAsync();
+
+        var content = await unitOfWork.GetLatestNoteContentAsync(VaultLayout.DailyNotesFolder, "TODO - 2026-07-31.md");
+
+        Assert.Null(content);
+    }
+
+    [Fact]
+    public async Task GetLatestNoteContentAsync_ReadsFromDisk_WhenNoPendingJobExists()
+    {
+        var folder = Path.Combine(_vaultRoot, VaultLayout.DailyNotesFolder);
+        Directory.CreateDirectory(folder);
+        await File.WriteAllTextAsync(Path.Combine(folder, "TODO - 2026-07-31.md"), "on disk content");
+
+        await using var unitOfWork = await Factory.BeginAsync();
+        var content = await unitOfWork.GetLatestNoteContentAsync(VaultLayout.DailyNotesFolder, "TODO - 2026-07-31.md");
+
+        Assert.Equal("on disk content", content);
+    }
+
+    [Fact]
+    public async Task GetLatestNoteContentAsync_PrefersPendingJobOverDisk()
+    {
+        var folder = Path.Combine(_vaultRoot, VaultLayout.DailyNotesFolder);
+        Directory.CreateDirectory(folder);
+        await File.WriteAllTextAsync(Path.Combine(folder, "TODO - 2026-07-31.md"), "stale disk content");
+
+        await using (var unitOfWork = await Factory.BeginAsync())
+        {
+            await unitOfWork.EnqueueWriteJobAsync(700, VaultLayout.DailyNotesFolder, "TODO - 2026-07-31.md", "fresher pending content", 42, 7);
+            await unitOfWork.MarkUpdateProcessedAsync(700);
+            await unitOfWork.CommitAsync();
+        }
+
+        await using var next = await Factory.BeginAsync();
+        var content = await next.GetLatestNoteContentAsync(VaultLayout.DailyNotesFolder, "TODO - 2026-07-31.md");
+
+        Assert.Equal("fresher pending content", content);
     }
 
     [Fact]
@@ -247,7 +290,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         }
 
         var filename = await unitOfWork.ReserveFilenameAsync(baseFilename);
-        await unitOfWork.EnqueueWriteJobAsync(updateId, filename, content, 42, 7);
+        await unitOfWork.EnqueueWriteJobAsync(updateId, VaultLayout.FleetingFolder, filename, content, 42, 7);
         await unitOfWork.MarkUpdateProcessedAsync(updateId);
         await unitOfWork.SetTelegramOffsetAsync((int)updateId + 1);
         await unitOfWork.CommitAsync();

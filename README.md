@@ -18,6 +18,10 @@ merges that branch into `main` by hand.
   and the message body verbatim. `/new` files a named note (`groceries.md`)
   instead. Filenames are minute-precision, so a second note in the same minute
   gets a `-2` suffix (`202607311430-2.md`) rather than overwriting the first.
+- **Tasks**: `/task` (or `/todo`) appends one checklist item per line to that
+  day's `TODO - {yyyy-MM-dd}.md` in `06 - Daily Notes/{yyyy}/{MM - Month}`,
+  creating it on first use and updating its `last-modified` property (while
+  preserving `date`) on every later use the same day.
 - **Git**: the bot drives the `git` CLI directly (no LibGit2Sharp). It only ever
   reads from and writes to one dedicated branch (`GIT__BRANCH`, e.g. `bot-inbox`)
   and never merges, force-pushes, or rewrites history on it.

@@ -17,6 +17,7 @@ public enum WriteJobStatus
 public sealed record WriteJob(
     long Id,
     long UpdateId,
+    string RelativeFolder,
     string Filename,
     string Content,
     long ChatId,

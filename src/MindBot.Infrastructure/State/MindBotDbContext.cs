@@ -30,6 +30,7 @@ public sealed class MindBotDbContext(DbContextOptions<MindBotDbContext> options)
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.UpdateId).IsRequired();
+            entity.Property(e => e.RelativeFolder).IsRequired();
             entity.Property(e => e.Filename).IsRequired();
             entity.Property(e => e.Content).IsRequired();
             entity.Property(e => e.ChatId).IsRequired();
@@ -39,9 +40,9 @@ public sealed class MindBotDbContext(DbContextOptions<MindBotDbContext> options)
             // the checked-in migration snapshot is easy to regenerate.
             entity.Property(e => e.Status).IsRequired();
 
-            // Drives both the pending scan and the filename-reservation probe.
+            // Drives both the pending scan and the filename-reservation/latest-content probes.
             entity.HasIndex(e => new { e.Status, e.Id });
-            entity.HasIndex(e => e.Filename);
+            entity.HasIndex(e => new { e.RelativeFolder, e.Filename, e.Status });
         });
 
         modelBuilder.Entity<ConversationStateEntity>(entity =>

@@ -31,8 +31,17 @@ public interface IIngestUnitOfWork : IAsyncDisposable
     /// </summary>
     Task<string> ReserveFilenameAsync(string baseFilename, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns the most up-to-date content for a note addressed by <paramref name="relativeFolder"/>
+    /// and <paramref name="filename"/>: the content of the latest pending write job targeting that
+    /// path if one exists (it has not reached disk yet, so it is the authoritative state), else
+    /// the file's content on disk, else null if the note does not exist yet.
+    /// </summary>
+    Task<string?> GetLatestNoteContentAsync(string relativeFolder, string filename, CancellationToken cancellationToken = default);
+
     Task EnqueueWriteJobAsync(
         long updateId,
+        string relativeFolder,
         string filename,
         string content,
         long chatId,

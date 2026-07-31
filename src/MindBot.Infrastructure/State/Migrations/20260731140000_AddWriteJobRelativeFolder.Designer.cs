@@ -3,6 +3,7 @@ using System;
 using MindBot.Infrastructure.State;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace MindBot.Infrastructure.State.Migrations;
 
 [DbContext(typeof(MindBotDbContext))]
-partial class MindBotDbContextModelSnapshot : ModelSnapshot
+[Migration("20260731140000_AddWriteJobRelativeFolder")]
+partial class AddWriteJobRelativeFolder
 {
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    /// <inheritdoc />
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
         modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 

@@ -67,22 +67,22 @@ public sealed class FakeGitService : IGitService
 
 public sealed class FakeVaultWriter(string? vaultRoot = null) : IVaultWriter
 {
-    public List<(string Filename, string Content)> Written { get; } = [];
+    public List<(string RelativeFolder, string Filename, string Content)> Written { get; } = [];
 
     public Exception? ThrowOnWrite { get; set; }
 
-    public Task<string> WriteNoteAsync(string filename, string content, CancellationToken cancellationToken = default)
+    public Task<string> WriteNoteAsync(string relativeFolder, string filename, string content, CancellationToken cancellationToken = default)
     {
         if (ThrowOnWrite is not null)
         {
             throw ThrowOnWrite;
         }
 
-        Written.Add((filename, content));
+        Written.Add((relativeFolder, filename, content));
 
         if (vaultRoot is not null)
         {
-            var path = Path.Combine(vaultRoot, VaultLayout.RelativeNotePath(filename));
+            var path = Path.Combine(vaultRoot, relativeFolder, filename);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, content);
         }
@@ -136,9 +136,15 @@ public sealed class InMemoryWriteJobQueue : IWriteJobQueue
 
     public IReadOnlyList<WriteJob> All => _jobs;
 
-    public WriteJob Enqueue(string filename, string content, long updateId = 1, long chatId = 42, long senderId = 7)
+    public WriteJob Enqueue(
+        string filename,
+        string content,
+        long updateId = 1,
+        long chatId = 42,
+        long senderId = 7,
+        string relativeFolder = VaultLayout.FleetingFolder)
     {
-        var job = new WriteJob(_nextId++, updateId, filename, content, chatId, senderId, DateTimeOffset.UnixEpoch, WriteJobStatus.Pending);
+        var job = new WriteJob(_nextId++, updateId, relativeFolder, filename, content, chatId, senderId, DateTimeOffset.UnixEpoch, WriteJobStatus.Pending);
         _jobs.Add(job);
         return job;
     }
@@ -191,8 +197,9 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null) : IIngest
     private readonly Dictionary<long, ConversationState> _conversations = [];
     private readonly HashSet<long> _processedUpdates = [];
     private readonly HashSet<string> _reserved = [];
+    private readonly Dictionary<(string Folder, string Filename), string> _latestContent = [];
 
-    public List<(long UpdateId, string Filename, string Content, long ChatId, long SenderId)> Enqueued { get; } = [];
+    public List<(long UpdateId, string RelativeFolder, string Filename, string Content, long ChatId, long SenderId)> Enqueued { get; } = [];
 
     public bool Committed { get; private set; }
 
@@ -239,15 +246,36 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null) : IIngest
         }
     }
 
+    public Task<string?> GetLatestNoteContentAsync(string relativeFolder, string filename, CancellationToken cancellationToken = default)
+    {
+        if (_latestContent.TryGetValue((relativeFolder, filename), out var content))
+        {
+            return Task.FromResult<string?>(content);
+        }
+
+        if (vaultRoot is not null)
+        {
+            var path = Path.Combine(vaultRoot, relativeFolder, filename);
+            if (File.Exists(path))
+            {
+                return Task.FromResult<string?>(File.ReadAllText(path));
+            }
+        }
+
+        return Task.FromResult<string?>(null);
+    }
+
     public Task EnqueueWriteJobAsync(
         long updateId,
+        string relativeFolder,
         string filename,
         string content,
         long chatId,
         long senderId,
         CancellationToken cancellationToken = default)
     {
-        Enqueued.Add((updateId, filename, content, chatId, senderId));
+        Enqueued.Add((updateId, relativeFolder, filename, content, chatId, senderId));
+        _latestContent[(relativeFolder, filename)] = content;
         return Task.CompletedTask;
     }
 
