@@ -1,4 +1,5 @@
 using MindBot.Core.Commands;
+using MindBot.Core.Notes;
 using MindBot.Core.Operations;
 using MindBot.Tests.Fakes;
 
@@ -48,5 +49,37 @@ public class BareTextCommandTests
 
         Assert.Equal("202607300900.md", firstResult.Reply);
         Assert.Equal("202607300900-2.md", secondResult.Reply);
+    }
+
+    [Fact]
+    public async Task HandleAsync_HashtagsInMessage_AreAddedToFrontmatterTags()
+    {
+        var timeProvider = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
+        var command = new BareTextCommand(timeProvider);
+        using var vaultRoot = new TempVaultRoot();
+        var context = new UnitOfWorkVaultOperationContext(new InMemoryIngestUnitOfWork(vaultRoot.Path), vaultRoot.Path);
+
+        var result = await command.HandleAsync("Plan the trip #travel and #budget", context);
+
+        var ops = Assert.IsType<CommandResult.Operations>(result);
+        var op = Assert.IsType<CreateNote>(Assert.Single(ops.Items));
+        var frontmatter = Assert.IsType<NoteFrontmatter>(op.Frontmatter);
+        Assert.Equal(["WIP", "MindBot", "travel", "budget"], frontmatter.Tags);
+    }
+
+    [Fact]
+    public async Task HandleAsync_HashtagDuplicatingDefaultTag_IsNotAddedTwice()
+    {
+        var timeProvider = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
+        var command = new BareTextCommand(timeProvider);
+        using var vaultRoot = new TempVaultRoot();
+        var context = new UnitOfWorkVaultOperationContext(new InMemoryIngestUnitOfWork(vaultRoot.Path), vaultRoot.Path);
+
+        var result = await command.HandleAsync("Still in progress #WIP", context);
+
+        var ops = Assert.IsType<CommandResult.Operations>(result);
+        var op = Assert.IsType<CreateNote>(Assert.Single(ops.Items));
+        var frontmatter = Assert.IsType<NoteFrontmatter>(op.Frontmatter);
+        Assert.Equal(["WIP", "MindBot"], frontmatter.Tags);
     }
 }

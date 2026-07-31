@@ -16,6 +16,13 @@ public static class NoteContentBuilder
         {
             Date = created.ToString("yyyy-MM-ddTHH:mm:sszzz"),
         };
+        foreach (var tag in HashtagExtractor.Extract(messageText))
+        {
+            if (!frontmatter.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            {
+                frontmatter.Tags.Add(tag);
+            }
+        }
 
         var yaml = Serializer.Serialize(frontmatter);
         var body = WikilinkTransformer.Transform(messageText);

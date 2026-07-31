@@ -29,4 +29,18 @@ public class NoteContentBuilderTests
 
         Assert.EndsWith("Call [[Alice]] about [[the trip]]\n", content);
     }
+
+    [Fact]
+    public void Build_HashtagsInMessage_AreAddedToFrontmatterTags()
+    {
+        var created = new DateTimeOffset(2026, 7, 30, 8, 15, 0, TimeSpan.FromHours(-4));
+
+        var content = NoteContentBuilder.Build("Book the dentist #health #followup", created);
+
+        Assert.Contains("- WIP", content);
+        Assert.Contains("- MindBot", content);
+        Assert.Contains("- health", content);
+        Assert.Contains("- followup", content);
+        Assert.EndsWith("Book the dentist #health #followup\n", content);
+    }
 }
