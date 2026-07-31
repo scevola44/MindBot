@@ -108,8 +108,10 @@ public class TaskNoteContentBuilderTests
 
         var content = TaskNoteContentBuilder.Append(existing, ["Buy groceries #ToDo"], now);
 
-        var tagsIndex = content.IndexOf("tags:", StringComparison.Ordinal);
-        var todoOccurrences = content[tagsIndex..].Split("ToDo").Length - 1;
+        var frontmatterEnd = content.IndexOf("---", 3, StringComparison.Ordinal);
+        var frontmatter = content[..frontmatterEnd];
+        var todoOccurrences = frontmatter.Split("ToDo").Length - 1;
         Assert.Equal(1, todoOccurrences);
+        Assert.Contains("Buy groceries #ToDo", content);
     }
 }
