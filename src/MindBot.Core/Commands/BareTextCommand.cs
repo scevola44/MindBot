@@ -20,6 +20,14 @@ public sealed class BareTextCommand(TimeProvider timeProvider) : ICommand
         var path = VaultLayout.RelativeNotePath(filename);
 
         var frontmatter = new NoteFrontmatter { Date = created.ToString("yyyy-MM-ddTHH:mm:sszzz") };
+        foreach (var tag in HashtagExtractor.Extract(messageText))
+        {
+            if (!frontmatter.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            {
+                frontmatter.Tags.Add(tag);
+            }
+        }
+
         var body = WikilinkTransformer.Transform(messageText);
 
         var operation = new CreateNote(path, frontmatter, body);

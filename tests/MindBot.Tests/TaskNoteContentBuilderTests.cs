@@ -81,4 +81,35 @@ public class TaskNoteContentBuilderTests
         Assert.Contains("- [ ] Call $Alice", content);
         Assert.Contains("- [ ] Call [[Bob]]", content);
     }
+
+    [Fact]
+    public void Append_HashtagsInNewItems_AreAddedToFrontmatterTags()
+    {
+        var now = new DateTimeOffset(2026, 7, 31, 10, 0, 0, TimeSpan.Zero);
+
+        var content = TaskNoteContentBuilder.Append(null, ["Buy groceries #errand", "Call Bob #followup"], now);
+
+        Assert.Contains("- ToDo", content);
+        Assert.Contains("- errand", content);
+        Assert.Contains("- followup", content);
+    }
+
+    [Fact]
+    public void Append_HashtagDuplicatingExistingTag_IsNotAddedTwice()
+    {
+        var existing =
+            "---\n" +
+            "date: 2026-07-30T11:24\n" +
+            "tags:\n" +
+            "  - ToDo\n" +
+            "---\n" +
+            "- [ ] Send mail\n";
+        var now = new DateTimeOffset(2026, 7, 31, 9, 0, 0, TimeSpan.Zero);
+
+        var content = TaskNoteContentBuilder.Append(existing, ["Buy groceries #ToDo"], now);
+
+        var tagsIndex = content.IndexOf("tags:", StringComparison.Ordinal);
+        var todoOccurrences = content[tagsIndex..].Split("ToDo").Length - 1;
+        Assert.Equal(1, todoOccurrences);
+    }
 }

@@ -51,6 +51,14 @@ public static class TaskNoteContentBuilder
 
         frontmatter.LastModified = now.ToString(DateFormat);
 
+        foreach (var tag in HashtagExtractor.Extract(string.Join('\n', items)))
+        {
+            if (!frontmatter.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            {
+                frontmatter.Tags.Add(tag);
+            }
+        }
+
         var newLines = items.Select(item => $"- [ ] {WikilinkTransformer.Transform(item)}");
         var yaml = Serializer.Serialize(frontmatter);
         return $"---\n{yaml}---\n{string.Join('\n', bodyLines.Concat(newLines))}\n";
