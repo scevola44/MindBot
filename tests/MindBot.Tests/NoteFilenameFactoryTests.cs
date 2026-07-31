@@ -39,4 +39,32 @@ public class NoteFilenameFactoryTests
         Assert.DoesNotContain("/", filename);
         Assert.EndsWith(".md", filename);
     }
+
+    [Fact]
+    public void CreateCandidate_FirstAttempt_IsTheUnadornedBaseName()
+    {
+        // The common case is a single message in its minute; it must not gain a suffix.
+        Assert.Equal("202607300905.md", NoteFilenameFactory.CreateCandidate("202607300905.md", 1));
+    }
+
+    [Theory]
+    [InlineData(2, "202607300905-2.md")]
+    [InlineData(3, "202607300905-3.md")]
+    [InlineData(10, "202607300905-10.md")]
+    public void CreateCandidate_LaterAttempts_AppendTheAttemptNumber(int attempt, string expected)
+    {
+        Assert.Equal(expected, NoteFilenameFactory.CreateCandidate("202607300905.md", attempt));
+    }
+
+    [Fact]
+    public void CreateCandidate_NamedNote_SuffixesBeforeTheExtension()
+    {
+        Assert.Equal("groceries-2.md", NoteFilenameFactory.CreateCandidate("groceries.md", 2));
+    }
+
+    [Fact]
+    public void CreateCandidate_AttemptBelowOne_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => NoteFilenameFactory.CreateCandidate("a.md", 0));
+    }
 }

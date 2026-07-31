@@ -10,6 +10,12 @@ public sealed class TelegramOptions
     /// <summary>Comma-separated list of Telegram numeric user IDs allowed to use the bot.</summary>
     public string AllowedUserIds { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Chat that receives operational alerts (branch rewritten, push failing). Optional: when
+    /// unset the alerts are logged instead of sent, so the bot still runs without it.
+    /// </summary>
+    public long? OperatorChatId { get; set; }
+
     public IReadOnlySet<long> ParseAllowedUserIds()
     {
         var ids = new HashSet<long>();

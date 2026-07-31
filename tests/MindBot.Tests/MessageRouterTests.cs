@@ -1,4 +1,5 @@
-using MindBot.Bot.Services;
+using MindBot.Core.Durability;
+using MindBot.Core.Ingest;
 using MindBot.Core.Notes;
 using MindBot.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,129 +9,149 @@ namespace MindBot.Tests;
 public class MessageRouterTests
 {
     private const long ChatId = 42;
+    private const long SenderId = 7;
 
-    private static (MessageRouter Router, ConversationStateStore Store, FakeVaultWriter Vault) CreateRouter()
+    private static (MessageRouter Router, InMemoryIngestUnitOfWork UnitOfWork) CreateRouter()
     {
-        var store = new ConversationStateStore();
-        var git = new FakeGitService();
-        var vault = new FakeVaultWriter();
-        var time = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
-        var pipeline = new NotePipeline(git, vault, time, NullLogger<NotePipeline>.Instance);
-        var router = new MessageRouter(store, pipeline, NullLogger<MessageRouter>.Instance);
-        return (router, store, vault);
+        var planner = new NotePlanner(new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero)));
+        var router = new MessageRouter(planner, NullLogger<MessageRouter>.Instance);
+        return (router, new InMemoryIngestUnitOfWork());
     }
+
+    private static Task<string> RouteAsync(MessageRouter router, InMemoryIngestUnitOfWork unitOfWork, string text, long updateId = 1) =>
+        router.RouteAsync(unitOfWork, updateId, ChatId, SenderId, text);
 
     [Fact]
     public async Task RouteAsync_New_AsksForName_AndSetsState()
     {
-        var (router, store, _) = CreateRouter();
+        var (router, unitOfWork) = CreateRouter();
 
-        var reply = await router.RouteAsync(ChatId, "/new");
+        var reply = await RouteAsync(router, unitOfWork, "/new");
 
         Assert.Equal("What would you like to name the note?", reply);
-        Assert.Equal(ConversationStage.AwaitingNoteName, store.Get(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
     }
 
     [Fact]
     public async Task RouteAsync_NewCaseInsensitive_Matches()
     {
-        var (router, store, _) = CreateRouter();
+        var (router, unitOfWork) = CreateRouter();
 
-        await router.RouteAsync(ChatId, "/NEW");
+        await RouteAsync(router, unitOfWork, "/NEW");
 
-        Assert.Equal(ConversationStage.AwaitingNoteName, store.Get(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
     }
 
     [Fact]
     public async Task RouteAsync_NameProvided_AsksForContent_AndStoresName()
     {
-        var (router, store, _) = CreateRouter();
-        await router.RouteAsync(ChatId, "/new");
+        var (router, unitOfWork) = CreateRouter();
+        await RouteAsync(router, unitOfWork, "/new");
 
-        var reply = await router.RouteAsync(ChatId, "Groceries");
+        var reply = await RouteAsync(router, unitOfWork, "Groceries", updateId: 2);
 
         Assert.Equal("Got it. Now send me the note content.", reply);
-        var state = store.Get(ChatId);
+        var state = unitOfWork.Conversation(ChatId);
         Assert.Equal(ConversationStage.AwaitingNoteContent, state.Stage);
         Assert.Equal("Groceries", state.PendingNoteName);
     }
 
     [Fact]
-    public async Task RouteAsync_ContentProvided_CreatesNamedNote_ReturnsFilename_AndClearsState()
+    public async Task RouteAsync_ContentProvided_QueuesNamedNote_ReturnsFilename_AndClearsState()
     {
-        var (router, store, vault) = CreateRouter();
-        await router.RouteAsync(ChatId, "/new");
-        await router.RouteAsync(ChatId, "Groceries");
+        var (router, unitOfWork) = CreateRouter();
+        await RouteAsync(router, unitOfWork, "/new");
+        await RouteAsync(router, unitOfWork, "Groceries", updateId: 2);
 
-        var reply = await router.RouteAsync(ChatId, "Milk and eggs");
+        var reply = await RouteAsync(router, unitOfWork, "Milk and eggs", updateId: 3);
 
         Assert.Equal("groceries.md", reply);
-        Assert.Equal(ConversationState.None, store.Get(ChatId));
-        Assert.Single(vault.Written);
-        Assert.Equal("groceries.md", vault.Written[0].Filename);
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(ChatId));
+
+        var queued = Assert.Single(unitOfWork.Enqueued);
+        Assert.Equal("groceries.md", queued.Filename);
+        Assert.Contains("Milk and eggs", queued.Content);
+        Assert.Equal(3, queued.UpdateId);
     }
 
     [Fact]
     public async Task RouteAsync_CancelWithPendingConversation_ClearsState_ReturnsCancelled()
     {
-        var (router, store, _) = CreateRouter();
-        await router.RouteAsync(ChatId, "/new");
+        var (router, unitOfWork) = CreateRouter();
+        await RouteAsync(router, unitOfWork, "/new");
 
-        var reply = await router.RouteAsync(ChatId, "/cancel");
+        var reply = await RouteAsync(router, unitOfWork, "/cancel", updateId: 2);
 
         Assert.Equal("Cancelled.", reply);
-        Assert.Equal(ConversationState.None, store.Get(ChatId));
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(ChatId));
     }
 
     [Fact]
     public async Task RouteAsync_CancelWithNoPendingConversation_ReturnsNothingToCancel()
     {
-        var (router, _, _) = CreateRouter();
+        var (router, unitOfWork) = CreateRouter();
 
-        var reply = await router.RouteAsync(ChatId, "/cancel");
+        var reply = await RouteAsync(router, unitOfWork, "/cancel");
 
         Assert.Equal("Nothing to cancel.", reply);
     }
 
     [Fact]
-    public async Task RouteAsync_PlainTextNoConversation_CreatesTimestampNote_ReturnsFilename()
+    public async Task RouteAsync_PlainTextNoConversation_QueuesTimestampNote_ReturnsFilename()
     {
-        var (router, _, vault) = CreateRouter();
+        var (router, unitOfWork) = CreateRouter();
 
-        var reply = await router.RouteAsync(ChatId, "Just a quick thought");
+        var reply = await RouteAsync(router, unitOfWork, "Just a quick thought");
 
         Assert.Equal("202607300900.md", reply);
-        Assert.Single(vault.Written);
+        Assert.Single(unitOfWork.Enqueued);
+    }
+
+    [Fact]
+    public async Task RouteAsync_TwoMessagesInTheSameMinute_GetDistinctFilenames()
+    {
+        var (router, unitOfWork) = CreateRouter();
+
+        var first = await RouteAsync(router, unitOfWork, "one", updateId: 1);
+        var second = await RouteAsync(router, unitOfWork, "two", updateId: 2);
+
+        Assert.Equal("202607300900.md", first);
+        Assert.Equal("202607300900-2.md", second);
+        Assert.Equal(2, unitOfWork.Enqueued.Count);
     }
 
     [Fact]
     public async Task RouteAsync_NewRestartsPendingConversation()
     {
-        var (router, store, _) = CreateRouter();
-        await router.RouteAsync(ChatId, "/new");
-        await router.RouteAsync(ChatId, "First name");
+        var (router, unitOfWork) = CreateRouter();
+        await RouteAsync(router, unitOfWork, "/new");
+        await RouteAsync(router, unitOfWork, "First name", updateId: 2);
 
-        await router.RouteAsync(ChatId, "/new");
+        await RouteAsync(router, unitOfWork, "/new", updateId: 3);
 
-        Assert.Equal(ConversationStage.AwaitingNoteName, store.Get(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
     }
 
     [Fact]
-    public async Task RouteAsync_NoteCreationThrows_StatePreservedForRetry()
+    public async Task RouteAsync_AwaitingContentWithNoPendingName_RecoversAndClearsState()
     {
-        var store = new ConversationStateStore();
-        var git = new FakeGitService();
-        var vault = new FakeVaultWriter { ThrowOnWrite = new InvalidOperationException("disk full") };
-        var time = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
-        var pipeline = new NotePipeline(git, vault, time, NullLogger<NotePipeline>.Instance);
-        var router = new MessageRouter(store, pipeline, NullLogger<MessageRouter>.Instance);
-        await router.RouteAsync(ChatId, "/new");
-        await router.RouteAsync(ChatId, "Groceries");
+        var (router, unitOfWork) = CreateRouter();
+        await unitOfWork.SetConversationAsync(ChatId, new ConversationState(ConversationStage.AwaitingNoteContent));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => router.RouteAsync(ChatId, "Milk and eggs"));
+        var reply = await RouteAsync(router, unitOfWork, "some content");
 
-        var state = store.Get(ChatId);
-        Assert.Equal(ConversationStage.AwaitingNoteContent, state.Stage);
-        Assert.Equal("Groceries", state.PendingNoteName);
+        Assert.Contains("start again with /new", reply);
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(ChatId));
+        Assert.Empty(unitOfWork.Enqueued);
+    }
+
+    [Fact]
+    public async Task RouteAsync_CommandAddressedToTheBot_IsRecognised()
+    {
+        var (router, unitOfWork) = CreateRouter();
+
+        await RouteAsync(router, unitOfWork, "/new@mybot");
+
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
     }
 }
