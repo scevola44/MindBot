@@ -1,3 +1,4 @@
+using MindBot.Core.Commands;
 using MindBot.Core.Durability;
 using MindBot.Core.Notes;
 using Microsoft.Extensions.Logging;
@@ -6,14 +7,15 @@ namespace MindBot.Core.Ingest;
 
 /// <summary>
 /// Decides what an incoming, already-authorized text message means: a /new or /cancel command, a
-/// reply within a pending /new conversation, or plain text to file as a timestamp-only fleeting
-/// note. Returns the reply text to send back to the chat.
+/// reply within a pending /new conversation, or (via <see cref="CommandExecutor"/>) a DI-discovered
+/// command -- including plain text, which files as a timestamp-only fleeting note. Returns the
+/// reply text to send back to the chat.
 /// <para>
 /// Every state change it makes goes through the supplied <see cref="IIngestUnitOfWork"/>, so
 /// routing a message and durably queueing the resulting note commit or roll back together.
 /// </para>
 /// </summary>
-public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProvider, ILogger<MessageRouter> logger)
+public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProvider, ILogger<MessageRouter> logger, CommandExecutor commandExecutor)
 {
     public async Task<string> RouteAsync(
         IIngestUnitOfWork unitOfWork,
@@ -72,8 +74,7 @@ public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProv
                 return await QueueAsync(unitOfWork, updateId, chatId, senderId, named, cancellationToken);
 
             default:
-                var quick = notePlanner.PlanQuickNote(messageText);
-                return await QueueAsync(unitOfWork, updateId, chatId, senderId, quick, cancellationToken);
+                return await commandExecutor.ExecuteAsync(unitOfWork, updateId, chatId, senderId, messageText, cancellationToken);
         }
     }
 
