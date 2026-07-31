@@ -27,25 +27,34 @@ public sealed class StateMaintenance(
         var updateCutoff = now - TimeSpan.FromDays(_stateOptions.ProcessedUpdateRetentionDays);
         var conversationCutoff = now - TimeSpan.FromMinutes(_stateOptions.ConversationExpiryMinutes);
 
-        var prunedUpdates = await db.ProcessedUpdates
+        // SQLite's EF Core provider cannot translate DateTimeOffset comparisons inside
+        // ExecuteDelete/ExecuteUpdate (unlike ordinary Where + ToListAsync queries, which work
+        // fine), so stale rows are loaded and removed through change tracking instead.
+        var staleUpdates = await db.ProcessedUpdates
             .Where(u => u.ReceivedAt < updateCutoff)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
+        db.ProcessedUpdates.RemoveRange(staleUpdates);
 
-        var prunedJobs = await db.WriteJobs
+        var staleJobs = await db.WriteJobs
             .Where(j => j.Status == WriteJobStatus.Completed && j.EnqueuedAt < updateCutoff)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
+        db.WriteJobs.RemoveRange(staleJobs);
 
-        var prunedConversations = await db.Conversations
+        var staleConversations = await db.Conversations
             .Where(c => c.UpdatedAt < conversationCutoff)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
+        db.Conversations.RemoveRange(staleConversations);
 
-        if (prunedUpdates + prunedJobs + prunedConversations > 0)
+        var prunedCount = staleUpdates.Count + staleJobs.Count + staleConversations.Count;
+        if (prunedCount > 0)
         {
+            await db.SaveChangesAsync(cancellationToken);
+
             logger.LogInformation(
                 "Pruned durability state: {Updates} processed update(s), {Jobs} completed job(s), {Conversations} expired conversation(s).",
-                prunedUpdates,
-                prunedJobs,
-                prunedConversations);
+                staleUpdates.Count,
+                staleJobs.Count,
+                staleConversations.Count);
         }
     }
 }
