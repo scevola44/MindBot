@@ -27,22 +27,27 @@ public sealed class StateMaintenance(
         var updateCutoff = now - TimeSpan.FromDays(_stateOptions.ProcessedUpdateRetentionDays);
         var conversationCutoff = now - TimeSpan.FromMinutes(_stateOptions.ConversationExpiryMinutes);
 
-        // SQLite's EF Core provider cannot translate DateTimeOffset comparisons inside
-        // ExecuteDelete/ExecuteUpdate (unlike ordinary Where + ToListAsync queries, which work
-        // fine), so stale rows are loaded and removed through change tracking instead.
-        var staleUpdates = await db.ProcessedUpdates
+        // SQLite has no offset-aware date type, so its EF Core provider refuses to translate
+        // relational comparisons (<, >) on DateTimeOffset columns at all - not just inside
+        // ExecuteDelete/ExecuteUpdate. Whatever can be filtered in SQL (enum equality) is pushed
+        // down; the DateTimeOffset cutoff itself is applied client-side after materializing.
+        // These tables stay small precisely because pruning keeps them that way, so pulling the
+        // (already narrowed) candidate rows into memory is cheap.
+        var staleUpdates = (await db.ProcessedUpdates.ToListAsync(cancellationToken))
             .Where(u => u.ReceivedAt < updateCutoff)
-            .ToListAsync(cancellationToken);
+            .ToList();
         db.ProcessedUpdates.RemoveRange(staleUpdates);
 
-        var staleJobs = await db.WriteJobs
-            .Where(j => j.Status == WriteJobStatus.Completed && j.EnqueuedAt < updateCutoff)
-            .ToListAsync(cancellationToken);
+        var staleJobs = (await db.WriteJobs
+                .Where(j => j.Status == WriteJobStatus.Completed)
+                .ToListAsync(cancellationToken))
+            .Where(j => j.EnqueuedAt < updateCutoff)
+            .ToList();
         db.WriteJobs.RemoveRange(staleJobs);
 
-        var staleConversations = await db.Conversations
+        var staleConversations = (await db.Conversations.ToListAsync(cancellationToken))
             .Where(c => c.UpdatedAt < conversationCutoff)
-            .ToListAsync(cancellationToken);
+            .ToList();
         db.Conversations.RemoveRange(staleConversations);
 
         var prunedCount = staleUpdates.Count + staleJobs.Count + staleConversations.Count;
