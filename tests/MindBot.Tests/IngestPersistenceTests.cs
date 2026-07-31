@@ -32,6 +32,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         _time = new FixedTimeProvider(new DateTimeOffset(2026, 7, 31, 12, 0, 0, TimeSpan.Zero));
 
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
         services.AddSingleton(Options.Create(new VaultOptions { Root = _vaultRoot }));
         services.AddSingleton(Options.Create(new StateOptions

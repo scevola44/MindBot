@@ -27,25 +27,39 @@ public sealed class StateMaintenance(
         var updateCutoff = now - TimeSpan.FromDays(_stateOptions.ProcessedUpdateRetentionDays);
         var conversationCutoff = now - TimeSpan.FromMinutes(_stateOptions.ConversationExpiryMinutes);
 
-        var prunedUpdates = await db.ProcessedUpdates
+        // SQLite has no offset-aware date type, so its EF Core provider refuses to translate
+        // relational comparisons (<, >) on DateTimeOffset columns at all - not just inside
+        // ExecuteDelete/ExecuteUpdate. Whatever can be filtered in SQL (enum equality) is pushed
+        // down; the DateTimeOffset cutoff itself is applied client-side after materializing.
+        // These tables stay small precisely because pruning keeps them that way, so pulling the
+        // (already narrowed) candidate rows into memory is cheap.
+        var staleUpdates = (await db.ProcessedUpdates.ToListAsync(cancellationToken))
             .Where(u => u.ReceivedAt < updateCutoff)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ToList();
+        db.ProcessedUpdates.RemoveRange(staleUpdates);
 
-        var prunedJobs = await db.WriteJobs
-            .Where(j => j.Status == WriteJobStatus.Completed && j.EnqueuedAt < updateCutoff)
-            .ExecuteDeleteAsync(cancellationToken);
+        var staleJobs = (await db.WriteJobs
+                .Where(j => j.Status == WriteJobStatus.Completed)
+                .ToListAsync(cancellationToken))
+            .Where(j => j.EnqueuedAt < updateCutoff)
+            .ToList();
+        db.WriteJobs.RemoveRange(staleJobs);
 
-        var prunedConversations = await db.Conversations
+        var staleConversations = (await db.Conversations.ToListAsync(cancellationToken))
             .Where(c => c.UpdatedAt < conversationCutoff)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ToList();
+        db.Conversations.RemoveRange(staleConversations);
 
-        if (prunedUpdates + prunedJobs + prunedConversations > 0)
+        var prunedCount = staleUpdates.Count + staleJobs.Count + staleConversations.Count;
+        if (prunedCount > 0)
         {
+            await db.SaveChangesAsync(cancellationToken);
+
             logger.LogInformation(
                 "Pruned durability state: {Updates} processed update(s), {Jobs} completed job(s), {Conversations} expired conversation(s).",
-                prunedUpdates,
-                prunedJobs,
-                prunedConversations);
+                staleUpdates.Count,
+                staleJobs.Count,
+                staleConversations.Count);
         }
     }
 }
