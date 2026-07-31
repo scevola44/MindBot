@@ -14,11 +14,23 @@ public sealed class NotePipeline(
     TimeProvider timeProvider,
     ILogger<NotePipeline> logger)
 {
-    public async Task<NoteCreationResult> CreateNoteAsync(string messageText, CancellationToken cancellationToken = default)
+    public Task<NoteCreationResult> CreateNoteAsync(string messageText, CancellationToken cancellationToken = default)
     {
         var created = timeProvider.GetLocalNow();
-        var filename = NoteFilenameFactory.Create(created, messageText);
-        var content = NoteContentBuilder.Build(messageText, created);
+        var filename = NoteFilenameFactory.CreateFromTimestamp(created);
+        return WriteNoteAsync(filename, messageText, created, cancellationToken);
+    }
+
+    public Task<NoteCreationResult> CreateNamedNoteAsync(string name, string content, CancellationToken cancellationToken = default)
+    {
+        var created = timeProvider.GetLocalNow();
+        var filename = NoteFilenameFactory.CreateFromName(name);
+        return WriteNoteAsync(filename, content, created, cancellationToken);
+    }
+
+    private async Task<NoteCreationResult> WriteNoteAsync(string filename, string bodyText, DateTimeOffset created, CancellationToken cancellationToken)
+    {
+        var content = NoteContentBuilder.Build(bodyText, created);
 
         var pullResult = await gitService.PullAsync(cancellationToken);
         if (!pullResult.Success)

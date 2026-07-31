@@ -22,6 +22,8 @@ builder.Services.AddSingleton<IGitService, GitService>();
 builder.Services.AddSingleton<IVaultWriter, VaultNoteWriter>();
 builder.Services.AddSingleton<NotePipeline>();
 builder.Services.AddSingleton<TelegramAuthorization>();
+builder.Services.AddSingleton<ConversationStateStore>();
+builder.Services.AddSingleton<MessageRouter>();
 
 builder.Services
     .AddHttpClient("telegram_bot_client")
