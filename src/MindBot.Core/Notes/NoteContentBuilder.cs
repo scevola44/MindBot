@@ -18,6 +18,7 @@ public static class NoteContentBuilder
         };
 
         var yaml = Serializer.Serialize(frontmatter);
-        return $"---\n{yaml}---\n\n{messageText}\n";
+        var body = WikilinkTransformer.Transform(messageText);
+        return $"---\n{yaml}---\n\n{body}\n";
     }
 }

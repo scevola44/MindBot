@@ -19,4 +19,14 @@ public class NoteContentBuilderTests
         Assert.DoesNotContain("fleeting", content);
         Assert.EndsWith("Remember to call the dentist.\n", content);
     }
+
+    [Fact]
+    public void Build_TransformsDollarShorthandIntoWikilinks()
+    {
+        var created = new DateTimeOffset(2026, 7, 30, 8, 15, 0, TimeSpan.FromHours(-4));
+
+        var content = NoteContentBuilder.Build("Call $Alice about $(the trip)", created);
+
+        Assert.EndsWith("Call [[Alice]] about [[the trip]]\n", content);
+    }
 }
