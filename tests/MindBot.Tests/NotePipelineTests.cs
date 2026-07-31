@@ -1,5 +1,6 @@
 using MindBot.Core.Git;
 using MindBot.Core.Notes;
+using MindBot.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MindBot.Tests;
@@ -16,12 +17,12 @@ public class NotePipelineTests
 
         var result = await pipeline.CreateNoteAsync("Hello vault");
 
-        Assert.Equal("2026-07-30T090000-hello-vault.md", result.Filename);
+        Assert.Equal("202607300900.md", result.Filename);
         Assert.Equal(1, git.PullCalls);
         Assert.Equal(1, git.CommitCalls);
         Assert.Equal(1, git.PushCalls);
         Assert.Single(vault.Written);
-        Assert.Equal("2026-07-30T090000-hello-vault.md", vault.Written[0].Filename);
+        Assert.Equal("202607300900.md", vault.Written[0].Filename);
     }
 
     [Fact]
@@ -39,55 +40,37 @@ public class NotePipelineTests
         Assert.NotNull(result.Filename);
     }
 
-    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    [Fact]
+    public async Task CreateNamedNoteAsync_WritesCommitsAndPushes_ReturnsSanitizedFilename()
     {
-        public override DateTimeOffset GetUtcNow() => now.ToUniversalTime();
-        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+        var git = new FakeGitService();
+        var vault = new FakeVaultWriter();
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
+        var pipeline = new NotePipeline(git, vault, time, NullLogger<NotePipeline>.Instance);
+
+        var result = await pipeline.CreateNamedNoteAsync("My Great Note!", "The content");
+
+        Assert.Equal("my-great-note.md", result.Filename);
+        Assert.Equal(1, git.PullCalls);
+        Assert.Equal(1, git.CommitCalls);
+        Assert.Equal(1, git.PushCalls);
+        Assert.Single(vault.Written);
+        Assert.Equal("my-great-note.md", vault.Written[0].Filename);
+        Assert.Contains("The content", vault.Written[0].Content);
     }
 
-    private sealed class FakeGitService : IGitService
+    [Fact]
+    public async Task CreateNamedNoteAsync_PullFails_StillWritesAndCommits()
     {
-        public GitOperationResult PullResult { get; set; } = GitOperationResult.Ok;
-        public GitOperationResult CommitResult { get; set; } = GitOperationResult.Ok;
-        public GitOperationResult PushResult { get; set; } = GitOperationResult.Ok;
+        var git = new FakeGitService { PullResult = GitOperationResult.Fail("remote unreachable") };
+        var vault = new FakeVaultWriter();
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
+        var pipeline = new NotePipeline(git, vault, time, NullLogger<NotePipeline>.Instance);
 
-        public int PullCalls { get; private set; }
-        public int CommitCalls { get; private set; }
-        public int PushCalls { get; private set; }
+        var result = await pipeline.CreateNamedNoteAsync("Groceries", "Milk and eggs");
 
-        public Task<GitOperationResult> EnsureRepositoryAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(GitOperationResult.Ok);
-
-        public Task<GitOperationResult> PullAsync(CancellationToken cancellationToken = default)
-        {
-            PullCalls++;
-            return Task.FromResult(PullResult);
-        }
-
-        public Task<GitOperationResult> CommitAsync(string message, CancellationToken cancellationToken = default)
-        {
-            CommitCalls++;
-            return Task.FromResult(CommitResult);
-        }
-
-        public Task<GitOperationResult> PushAsync(CancellationToken cancellationToken = default)
-        {
-            PushCalls++;
-            return Task.FromResult(PushResult);
-        }
-
-        public Task<GitOperationResult> VerifyRemoteWritableAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(GitOperationResult.Ok);
-    }
-
-    private sealed class FakeVaultWriter : IVaultWriter
-    {
-        public List<(string Filename, string Content)> Written { get; } = [];
-
-        public Task<string> WriteNoteAsync(string filename, string content, CancellationToken cancellationToken = default)
-        {
-            Written.Add((filename, content));
-            return Task.FromResult(filename);
-        }
+        Assert.Single(vault.Written);
+        Assert.Equal(1, git.CommitCalls);
+        Assert.Equal("groceries.md", result.Filename);
     }
 }

@@ -1,4 +1,3 @@
-using MindBot.Core.Notes;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -12,7 +11,7 @@ namespace MindBot.Bot.Services;
 public sealed class TelegramPollingHostedService(
     ITelegramBotClient botClient,
     TelegramAuthorization authorization,
-    NotePipeline notePipeline,
+    MessageRouter messageRouter,
     ILogger<TelegramPollingHostedService> logger) : BackgroundService
 {
     private static readonly UpdateType[] AllowedUpdates = [UpdateType.Message];
@@ -71,8 +70,8 @@ public sealed class TelegramPollingHostedService(
 
         try
         {
-            var result = await notePipeline.CreateNoteAsync(message.Text, cancellationToken);
-            await botClient.SendMessage(message.Chat.Id, result.Filename, cancellationToken: cancellationToken);
+            var reply = await messageRouter.RouteAsync(message.Chat.Id, message.Text, cancellationToken);
+            await botClient.SendMessage(message.Chat.Id, reply, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
