@@ -1,4 +1,5 @@
 using MindBot.Core.Options;
+using Microsoft.Extensions.Options;
 
 namespace MindBot.Tests;
 
@@ -51,7 +52,10 @@ public class TelegramOptionsValidatorTests
 
 public class GitOptionsValidatorTests
 {
-    private readonly GitOptionsValidator _validator = new();
+    private const string VaultRoot = "/data/vault";
+
+    private readonly GitOptionsValidator _validator = new(
+        Microsoft.Extensions.Options.Options.Create(new VaultOptions { Root = VaultRoot }));
 
     [Fact]
     public void Validate_MissingRemoteUrl_Fails()
@@ -133,6 +137,129 @@ public class GitOptionsValidatorTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void Validate_RecoveryPathInsideVault_Fails()
+    {
+        // A bundle written inside the vault would be swept onto the branch by 'git add -A' —
+        // committing the very commits it exists to rescue.
+        var options = new GitOptions
+        {
+            RemoteUrl = "git@example.com:x/y.git",
+            Branch = "bot-inbox",
+            SshKeyPath = "/tmp/does-not-exist",
+            RecoveryPath = VaultRoot + "/recovery",
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("GIT__RECOVERYPATH"));
+    }
+
+    [Fact]
+    public void Validate_RecoveryPathEqualToVaultRoot_Fails()
+    {
+        var options = new GitOptions
+        {
+            RemoteUrl = "git@example.com:x/y.git",
+            Branch = "bot-inbox",
+            SshKeyPath = "/tmp/does-not-exist",
+            RecoveryPath = VaultRoot,
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.Contains(result.Failures, f => f.Contains("GIT__RECOVERYPATH"));
+    }
+
+    [Fact]
+    public void Validate_RelativeRecoveryPath_Fails()
+    {
+        var options = new GitOptions
+        {
+            RemoteUrl = "git@example.com:x/y.git",
+            Branch = "bot-inbox",
+            SshKeyPath = "/tmp/does-not-exist",
+            RecoveryPath = "recovery",
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.Contains(result.Failures, f => f.Contains("GIT__RECOVERYPATH"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Validate_NonPositivePushRetryCount_Fails(int retryCount)
+    {
+        var options = new GitOptions
+        {
+            RemoteUrl = "git@example.com:x/y.git",
+            Branch = "bot-inbox",
+            SshKeyPath = "/tmp/does-not-exist",
+            PushRetryCount = retryCount,
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.Contains(result.Failures, f => f.Contains("GIT__PUSHRETRYCOUNT"));
+    }
+}
+
+public class StateOptionsValidatorTests
+{
+    private const string VaultRoot = "/data/vault";
+
+    private readonly StateOptionsValidator _validator = new(
+        Microsoft.Extensions.Options.Options.Create(new VaultOptions { Root = VaultRoot }));
+
+    [Fact]
+    public void Validate_DefaultOptions_Succeed()
+    {
+        var result = _validator.Validate(null, new StateOptions());
+
+        Assert.False(result.Failed);
+    }
+
+    [Fact]
+    public void Validate_DatabaseInsideVault_Fails()
+    {
+        // 'git add -A' would otherwise commit the bot's own state database into the vault.
+        var options = new StateOptions { DatabasePath = VaultRoot + "/.mindbot/state.db" };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("STATE__DATABASEPATH"));
+    }
+
+    [Fact]
+    public void Validate_RelativeDatabasePath_Fails()
+    {
+        var result = _validator.Validate(null, new StateOptions { DatabasePath = "state/mindbot.db" });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("STATE__DATABASEPATH"));
+    }
+
+    [Fact]
+    public void Validate_MissingDatabasePath_Fails()
+    {
+        var result = _validator.Validate(null, new StateOptions { DatabasePath = "" });
+
+        Assert.True(result.Failed);
+    }
+
+    [Fact]
+    public void Validate_NonPositiveConversationExpiry_Fails()
+    {
+        var result = _validator.Validate(null, new StateOptions { ConversationExpiryMinutes = 0 });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("STATE__CONVERSATIONEXPIRYMINUTES"));
     }
 }
 

@@ -13,30 +13,38 @@ merges that branch into `main` by hand.
 - **Telegram**: long polling only (via the `Telegram.Bot` package), never webhooks.
 - **Authorisation**: only sender IDs listed in `TELEGRAM__ALLOWEDUSERIDS` may use
   the bot. Everyone else gets a flat refusal, and the attempt is logged.
-- **Notes**: each message becomes `{yyyy-MM-dd}T{HHmmss}-{slug}.md` in the
-  vault's `05 - Fleeting` folder, with YAML frontmatter (`date`,
-  `tags: [WIP, MindBot]`) and the message body verbatim.
+- **Notes**: each message becomes `{yyyyMMddHHmm}.md` in the vault's
+  `05 - Fleeting` folder, with YAML frontmatter (`date`, `tags: [WIP, MindBot]`)
+  and the message body verbatim. `/new` files a named note (`groceries.md`)
+  instead. Filenames are minute-precision, so a second note in the same minute
+  gets a `-2` suffix (`202607311430-2.md`) rather than overwriting the first.
 - **Git**: the bot drives the `git` CLI directly (no LibGit2Sharp). It only ever
   reads from and writes to one dedicated branch (`GIT__BRANCH`, e.g. `bot-inbox`)
   and never merges, force-pushes, or rewrites history on it.
 - **Vault**: Obsidian itself is never invoked — this is plain filesystem work
   on Markdown files. No operation ever moves, renames, or deletes a note.
+- **Durability**: accepting a message and queueing the resulting note happen in
+  one SQLite transaction, so a crash can neither lose a capture nor duplicate
+  one. See [Durability](#durability) below.
 
 ## Project layout
 
 ```
 src/
-  MindBot.Core/           Options, note/filename/frontmatter logic, IGitService
-                          abstraction — no filesystem or process I/O.
-  MindBot.Infrastructure/ GitService (git CLI subprocess) and the vault file
-                          writer — the only project that touches disk or spawns
-                          processes.
-  MindBot.Bot/            Worker Service host: DI wiring, config validation,
-                          the git startup self-check, and the Telegram polling
-                          loop.
+  MindBot.Core/           Options, note/filename/frontmatter logic, the message
+                          router, the vault sync orchestration, and the
+                          IGitService / durability abstractions — no filesystem
+                          or process I/O.
+  MindBot.Infrastructure/ GitService (git CLI subprocess), the EF Core SQLite
+                          state store, and the vault file writer — the only
+                          project that touches disk or spawns processes.
+  MindBot.Bot/            Host: DI wiring, config validation, the git startup
+                          self-check, the Telegram ingest loop, the drain
+                          worker, and the health endpoint.
 tests/
-  MindBot.Tests/          xUnit tests, including a GitService suite that runs
-                          against a real local bare repository.
+  MindBot.Tests/          xUnit tests, including git suites that run against a
+                          real local bare repository and durability tests that
+                          run against a real SQLite file.
 ```
 
 Core/Infrastructure/Bot are separate projects (not just folders) so the
@@ -60,7 +68,16 @@ with a message naming the exact variable, instead of failing silently later.
 | `GIT__KNOWNHOSTSPATH` | no | Path to a `known_hosts` file. Falls back to ssh's default if unset. |
 | `GIT__USERNAME` | no | Local `user.name` for commits (default `MindBot`). |
 | `GIT__USEREMAIL` | no | Local `user.email` for commits (default `mindbot@localhost`). |
+| `GIT__RECOVERYPATH` | no | Where recovery bundles are written (default `/data/recovery`). **Must be outside `VAULT__ROOT`** — startup fails otherwise. |
+| `GIT__BATCHWINDOWSECONDS` | no | How long to coalesce arriving notes into one commit (default `5`). |
+| `GIT__MAXBATCHSIZE` | no | Maximum notes per commit (default `100`). |
+| `GIT__PUSHRETRYCOUNT` | no | Push attempts before reporting a degraded state (default `3`). |
+| `GIT__PUSHRETRYBASESECONDS` | no | Base delay for the exponential push backoff (default `2`). |
 | `VAULT__ROOT` | yes | Absolute path to the local clone of the vault (typically a mounted named volume). |
+| `STATE__DATABASEPATH` | no | SQLite durability database (default `/data/mindbot.db`). **Must be outside `VAULT__ROOT`** — startup fails otherwise. |
+| `STATE__CONVERSATIONEXPIRYMINUTES` | no | How long a half-finished `/new` conversation survives (default `60`). |
+| `STATE__PROCESSEDUPDATERETENTIONDAYS` | no | How long processed update IDs are kept (default `7`). |
+| `TELEGRAM__OPERATORCHATID` | no | Chat that receives operational alerts. When unset, alerts are logged instead. |
 | `TZ` | no | Container timezone, used for the `date` frontmatter timestamp. |
 
 ## Running locally
@@ -130,17 +147,121 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u your-github-username --password-std
 `docker-compose.yml` mounts:
 
 - a named volume (`vault-data`) at `/vault` for the persistent clone,
+- a named volume (`state-data`) at `/data` for the SQLite durability database
+  and recovery bundles — this must stay outside `/vault`, or `git add -A` would
+  commit the bot's own state onto the branch,
 - the SSH private key read-only at `/run/secrets/git_ssh_key`,
 - a `known_hosts` file read-only at `/run/secrets/known_hosts`.
 
-On first start against an empty volume the bot clones the repository, checks
-out `GIT__BRANCH` if it already exists on the remote (or creates it from the
-default branch and pushes it if it doesn't), and only then starts polling
-Telegram — so a misconfigured deploy (bad token, unreachable remote,
-non-writable branch) fails the container visibly instead of silently dropping
-messages.
+On start the bot migrates its state database, clones the repository if needed,
+checks out `GIT__BRANCH` (creating it from the default branch and pushing it if
+it doesn't exist on the remote), drains any write jobs left over from the
+previous run, and only then starts polling Telegram — so a misconfigured deploy
+(bad token, unreachable remote, non-writable branch) fails the container visibly
+instead of silently dropping messages, and a restart never begins accepting new
+messages on top of an unprocessed backlog.
+
+## Durability
+
+Accepting a message and writing its note are separate stages, connected by a
+SQLite queue:
+
+```
+Telegram ──► ingest (one SQLite transaction per update)
+              dedupe on update_id → route → reserve filename → queue the note
+                                                   │
+                                                   ▼
+             drain worker ──► classify → pull → write batch → ONE commit → push
+```
+
+The ingest transaction is what makes the guarantees hold. A crash before it
+commits leaves no trace and Telegram redelivers the update; a crash after it
+commits leaves the update recorded, so the redelivery is skipped. There is no
+window in which a note is written twice or dropped — and because nothing is
+buffered in memory, `SIGTERM` only has to finish the batch already in flight.
+
+### The core invariant
+
+The bot pushes immediately after every commit and normally holds **zero**
+un-pushed commits. While that holds, every pull is a fast-forward and conflicts
+cannot occur. `unpushedCommitCount` on the health endpoint is the check: any
+non-zero value is a degraded state, and the recovery paths below are live.
+
+### Pre-write classification
+
+Before every pull the bot asserts a clean working tree (committing anything an
+unclean shutdown left behind), fetches, and then classifies:
+
+| Case | Condition | Action |
+| --- | --- | --- |
+| 1 | No local commits unreachable from `origin/<branch>` | `pull --ff-only`. The normal path. |
+| 2 | Un-pushed commits exist, and `lastPushedSha` is still an ancestor of origin | The operator advanced the branch. `pull --rebase --autostash`. |
+| 3 | Un-pushed commits exist, and `lastPushedSha` is **not** an ancestor of origin | The branch was rewritten after triage. **Do not rebase** — export to a bundle, then `reset --hard origin/<branch>`. |
+| 4 | Fetch failed | Log a warning and write locally anyway. A capture is never dropped because the remote is down. |
+
+Case 3 is the one that matters. Rebasing there would replay commits whose notes
+the operator has already processed, resurrecting deleted notes. Rebase's
+patch-id skipping is *not* relied on to prevent this: it stops working the
+moment the operator edits a note during triage.
+
+The bot never force-pushes, never merges, and never discards a commit without
+first writing and verifying a recovery bundle. If the bundle cannot be written,
+it keeps the commits and stays degraded rather than dropping them.
+
+### Recovering from a rewritten branch
+
+When case 3 fires, the operator is messaged with the bundle path and the commit
+count. To inspect what was set aside:
+
+```bash
+cd /path/to/vault-clone
+git fetch /data/recovery/bot-inbox-20260731T143000Z.bundle HEAD:recovered-notes
+git log recovered-notes
+```
+
+Cherry-pick anything worth keeping. The bundle is the only copy of those
+commits, so collect it before pruning the `state-data` volume.
+
+## Health endpoint
+
+The bot serves `GET /health` on port 8080 inside the container. The port is
+deliberately not published — the compose healthcheck probes it from inside.
+
+```json
+{
+  "status": "healthy",
+  "degraded": false,
+  "lastSuccessfulPollUtc": "2026-07-31T14:29:58+00:00",
+  "lastSuccessfulPushUtc": "2026-07-31T14:28:11+00:00",
+  "queueDepth": 0,
+  "unpushedCommitCount": 0,
+  "workingTreeDirty": false,
+  "lastClassification": "FastForward"
+}
+```
+
+A degraded git state reports `degraded: true` but still returns **200**: a
+remote that is down for an hour is a condition this bot is designed to ride out,
+not a broken container. Only a stalled poller (no successful poll for 180s) or
+an unreachable state database returns **503**.
+
+```bash
+docker compose exec mindbot curl -fsS http://localhost:8080/health
+docker compose ps   # STATUS should read (healthy)
+```
+
+## Logging
+
+Logs are one JSON object per line, with the sender ID attached as a scope.
+
+The bot token is redacted at the log formatter rather than at call sites,
+because Telegram embeds the token in file-download URLs
+(`https://api.telegram.org/file/bot<token>/...`) — so an exception message can
+leak it even though nothing logs the setting itself. Redacting at the single
+boundary every message passes through covers those too.
 
 ## Out of scope
 
-Commands, media, persistence, batching, and conflict classification are
-deliberately not handled — see the acceptance criteria in the project brief.
+Media handling remains out of scope. No operation moves, renames, or deletes a
+note — including on collision, which is why filenames gain a `-2` suffix rather
+than overwriting.

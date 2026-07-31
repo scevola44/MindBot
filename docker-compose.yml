@@ -7,17 +7,37 @@ services:
       TZ: ${TZ:-UTC}
       TELEGRAM__BOTTOKEN: ${TELEGRAM__BOTTOKEN}
       TELEGRAM__ALLOWEDUSERIDS: ${TELEGRAM__ALLOWEDUSERIDS}
+      # Optional: chat that receives operational alerts (branch rewritten, push failing).
+      TELEGRAM__OPERATORCHATID: ${TELEGRAM__OPERATORCHATID:-}
       GIT__REMOTEURL: ${GIT__REMOTEURL}
       GIT__BRANCH: ${GIT__BRANCH:-bot-inbox}
       GIT__SSHKEYPATH: /run/secrets/git_ssh_key
       GIT__KNOWNHOSTSPATH: /run/secrets/known_hosts
       GIT__USERNAME: ${GIT__USERNAME:-MindBot}
       GIT__USEREMAIL: ${GIT__USEREMAIL:-mindbot@localhost}
+      # Must stay outside /vault: 'git add -A' would otherwise commit recovery bundles
+      # onto the very branch they exist to rescue commits from.
+      GIT__RECOVERYPATH: /data/recovery
+      GIT__BATCHWINDOWSECONDS: ${GIT__BATCHWINDOWSECONDS:-5}
       VAULT__ROOT: /vault
+      # Must stay outside /vault for the same reason as GIT__RECOVERYPATH.
+      STATE__DATABASEPATH: /data/mindbot.db
     volumes:
       - vault-data:/vault
+      - state-data:/data
       - ${GIT_SSH_KEY_PATH:-./secrets/id_ed25519}:/run/secrets/git_ssh_key:ro
       - ${GIT_KNOWN_HOSTS_PATH:-./secrets/known_hosts}:/run/secrets/known_hosts:ro
+    healthcheck:
+      # Probed inside the container, so port 8080 is never published to the host.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   vault-data:
+  # The durability database and recovery bundles. Losing this volume does not lose committed
+  # notes — those are in git history — but it does lose the pending queue, lastPushedSha, and
+  # any recovery bundles that have not been collected.
+  state-data:
