@@ -8,6 +8,8 @@ public sealed class MindBotDbContext(DbContextOptions<MindBotDbContext> options)
 
     public DbSet<WriteJobEntity> WriteJobs => Set<WriteJobEntity>();
 
+    public DbSet<BackgroundJobEntity> BackgroundJobs => Set<BackgroundJobEntity>();
+
     public DbSet<ConversationStateEntity> Conversations => Set<ConversationStateEntity>();
 
     public DbSet<RepositoryStateEntity> RepositoryState => Set<RepositoryStateEntity>();
@@ -43,6 +45,26 @@ public sealed class MindBotDbContext(DbContextOptions<MindBotDbContext> options)
             // Drives both the pending scan and the filename-reservation/latest-content probes.
             entity.HasIndex(e => new { e.Status, e.Id });
             entity.HasIndex(e => new { e.RelativeFolder, e.Filename, e.Status });
+        });
+
+        modelBuilder.Entity<BackgroundJobEntity>(entity =>
+        {
+            entity.ToTable("BackgroundJobs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.UpdateId).IsRequired();
+            entity.Property(e => e.Kind).IsRequired();
+            entity.Property(e => e.Payload).IsRequired();
+            entity.Property(e => e.ChatId).IsRequired();
+            entity.Property(e => e.SenderId).IsRequired();
+            entity.Property(e => e.Status).IsRequired();
+            entity.Property(e => e.Attempts).IsRequired();
+            entity.Property(e => e.LastError);
+            entity.Property(e => e.EnqueuedAt).IsRequired();
+            entity.Property(e => e.NextAttemptAt).IsRequired();
+
+            // Drives the worker's claim scan: pending jobs of one kind, oldest first.
+            entity.HasIndex(e => new { e.Kind, e.Status, e.Id });
         });
 
         modelBuilder.Entity<ConversationStateEntity>(entity =>

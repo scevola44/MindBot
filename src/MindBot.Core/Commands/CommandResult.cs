@@ -19,6 +19,18 @@ public abstract record CommandResult
     /// </summary>
     public sealed record Operations(IReadOnlyList<IVaultOperation> Items, string CommitMessage, string Reply) : CommandResult;
 
+    /// <summary>
+    /// Work too slow to do inside the ingest transaction, recorded durably for a background worker.
+    /// <paramref name="Kind"/> selects the worker and <paramref name="Payload"/> is its JSON input;
+    /// the executor stores both without interpreting either.
+    /// <para>
+    /// This exists because <see cref="Operations"/> cannot express it: an operation is resolved to
+    /// its final bytes during ingest, and a /ytsummary note's content is not known until five n8n
+    /// webhooks — minutes of network and LLM time — have run.
+    /// </para>
+    /// </summary>
+    public sealed record DeferredJob(string Kind, string Payload, string Reply) : CommandResult;
+
     /// <summary>A text reply with no vault write at all.</summary>
     public sealed record DirectReply(string Text) : CommandResult;
 

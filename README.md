@@ -22,6 +22,9 @@ merges that branch into `main` by hand.
   day's `TODO - {yyyy-MM-dd}.md` in `06 - Daily Notes/{yyyy}/{MM - Month}`,
   creating it on first use and updating its `last-modified` property (while
   preserving `date`) on every later use the same day.
+- **YouTube summaries**: `/ytsummary <url> [chunks]` files an AI-generated
+  summary of a video as a note in `05 - Fleeting`, named after the video's title.
+  See [YouTube summaries](#youtube-summaries) below.
 - **Git**: the bot drives the `git` CLI directly (no LibGit2Sharp). It only ever
   reads from and writes to one dedicated branch (`GIT__BRANCH`, e.g. `bot-inbox`)
   and never merges, force-pushes, or rewrites history on it.
@@ -40,11 +43,13 @@ src/
                           IGitService / durability abstractions — no filesystem
                           or process I/O.
   MindBot.Infrastructure/ GitService (git CLI subprocess), the EF Core SQLite
-                          state store, and the vault file writer — the only
-                          project that touches disk or spawns processes.
+                          state store, the n8n HTTP client, and the vault file
+                          writer — the only project that touches disk, spawns
+                          processes, or opens sockets.
   MindBot.Bot/            Host: DI wiring, config validation, the git startup
                           self-check, the Telegram ingest loop, the drain
-                          worker, and the health endpoint.
+                          worker, the background summary worker, and the health
+                          endpoint.
 tests/
   MindBot.Tests/          xUnit tests, including git suites that run against a
                           real local bare repository and durability tests that
@@ -82,6 +87,10 @@ with a message naming the exact variable, instead of failing silently later.
 | `STATE__CONVERSATIONEXPIRYMINUTES` | no | How long a half-finished `/new` conversation survives (default `60`). |
 | `STATE__PROCESSEDUPDATERETENTIONDAYS` | no | How long processed update IDs are kept (default `7`). |
 | `TELEGRAM__OPERATORCHATID` | no | Chat that receives operational alerts. When unset, alerts are logged instead. |
+| `N8N__BASEURL` | no | Base URL of the n8n webhooks backing `/ytsummary` (e.g. `https://n8n.internal/webhook`). When unset the command is rejected with an explanation and the bot starts normally. |
+| `N8N__TIMEOUTSECONDS` | no | Per-request timeout for those webhooks (default `600` — the summarisation step is LLM-bound). |
+| `N8N__MAXATTEMPTS` | no | How many times a summary job re-runs the whole pipeline before giving up (default `3`). |
+| `N8N__RETRYBASESECONDS` | no | Base delay for the exponential backoff between those attempts (default `30`). |
 | `TZ` | no | Container timezone, used for the `date` frontmatter timestamp. |
 
 ## Running locally
@@ -225,6 +234,45 @@ git log recovered-notes
 
 Cherry-pick anything worth keeping. The bundle is the only copy of those
 commits, so collect it before pruning the `state-data` volume.
+
+## YouTube summaries
+
+`/ytsummary <youtube-url> [chunks]` produces an AI-generated summary of a video
+as a note. It is the only command that does not answer immediately: the work
+runs through five n8n webhooks — transcript, chunking, per-chunk summarisation,
+reduction, keyword extraction — and takes minutes.
+
+```
+/ytsummary https://youtu.be/qIeJ7Gw9v_I
+/ytsummary https://youtu.be/qIeJ7Gw9v_I 4
+```
+
+The optional second argument is how many pieces the transcript is split into
+(1–12). Left out, it is derived from the transcript's length at roughly 1800
+words per chunk — more chunks means more, smaller LLM calls and a more detailed
+summary.
+
+The resulting note lands in `05 - Fleeting`, named after the video's title
+(slugified), with `tags: [WIP, Youtube, AISummary]`, the extracted keywords as
+`[[wikilinks]]`, a title heading, a source link, and a `table-of-contents` block
+for Obsidian's Table of Contents plugin.
+
+`N8N__BASEURL` must point at the n8n instance hosting these five webhook paths:
+`get-yt-transcript`, `text-chunker`, `summarize-chunks`, `chunks-reducer`,
+`extract-keywords`. When it is unset the command is rejected with an explanation
+and nothing else changes. The video's title comes from YouTube's public oEmbed
+endpoint, which needs no API key; if that lookup fails the note falls back to the
+video id.
+
+Requests are durable in the same sense as notes. `/ytsummary` records a
+background job in the same SQLite transaction that marks the Telegram update
+processed, so a restart mid-pipeline resumes the job instead of losing it, and
+the note is queued in a single transaction with the job's completion — it can
+never be filed twice. A failed attempt is retried with an exponential backoff
+(`N8N__MAXATTEMPTS`, `N8N__RETRYBASESECONDS`); when the attempts run out, the
+chat is told why.
+
+`/preview /ytsummary <url>` reports what would be queued without contacting n8n.
 
 ## Health endpoint
 

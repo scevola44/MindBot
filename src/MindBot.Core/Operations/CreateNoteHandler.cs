@@ -12,8 +12,12 @@ namespace MindBot.Core.Operations;
 /// </summary>
 public sealed class CreateNoteHandler : IVaultOperationHandler
 {
+    // WithIndentedSequences matches how Obsidian itself writes list properties (and what
+    // TaskNoteContentBuilder already emits), so a note the bot creates and a note the user edits in
+    // Obsidian do not differ by indentation alone in the git diff.
     private static readonly ISerializer Serializer = new SerializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .WithIndentedSequences()
         .Build();
 
     public bool CanHandle(IVaultOperation operation) => operation is CreateNote;

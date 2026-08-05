@@ -80,6 +80,26 @@ public class CommandExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DeferredJob_RecordsTheJob_QueuesNoNote_ReturnsReply()
+    {
+        var command = new FixedResultCommand(new CommandResult.DeferredJob("youtube-summary", """{"videoId":"abc"}""", "on it"));
+        var executor = CreateExecutor(command, out var unitOfWork, out var vaultRoot);
+        using var _ = vaultRoot;
+
+        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 11, chatId: 42, senderId: 7, "anything");
+
+        Assert.Equal("on it", reply);
+        Assert.Empty(unitOfWork.Enqueued);
+
+        var job = Assert.Single(unitOfWork.EnqueuedBackgroundJobs);
+        Assert.Equal(11, job.UpdateId);
+        Assert.Equal("youtube-summary", job.Kind);
+        Assert.Equal("""{"videoId":"abc"}""", job.Payload);
+        Assert.Equal(42, job.ChatId);
+        Assert.Equal(7, job.SenderId);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_SecondOperationThrowsPartway_EnqueuesNothingFromEitherOperation()
     {
         var frontmatter = new MindBot.Core.Notes.NoteFrontmatter { Date = "2026-07-30T09:00:00+00:00" };

@@ -291,3 +291,68 @@ public class VaultOptionsValidatorTests
         Assert.False(result.Failed);
     }
 }
+
+public class N8nOptionsValidatorTests
+{
+    private readonly N8nOptionsValidator _validator = new();
+
+    /// <summary>
+    /// The one rule that differs from every other validator here: n8n is optional, so an unset base
+    /// URL must start the bot rather than fail it.
+    /// </summary>
+    [Fact]
+    public void Validate_EmptyBaseUrl_Succeeds()
+    {
+        var result = _validator.Validate(null, new N8nOptions { BaseUrl = "" });
+
+        Assert.False(result.Failed);
+        Assert.False(new N8nOptions { BaseUrl = "" }.IsConfigured);
+    }
+
+    [Fact]
+    public void Validate_AbsoluteHttpBaseUrl_Succeeds()
+    {
+        var options = new N8nOptions { BaseUrl = "https://n8n.example/webhook" };
+
+        Assert.False(_validator.Validate(null, options).Failed);
+        Assert.True(options.IsConfigured);
+    }
+
+    [Fact]
+    public void Validate_RelativeBaseUrl_Fails()
+    {
+        var result = _validator.Validate(null, new N8nOptions { BaseUrl = "n8n.example/webhook" });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("N8N__BASEURL"));
+    }
+
+    [Fact]
+    public void Validate_NonHttpScheme_Fails()
+    {
+        var result = _validator.Validate(null, new N8nOptions { BaseUrl = "ftp://n8n.example/webhook" });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("http"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Validate_NonPositiveMaxAttempts_Fails(int maxAttempts)
+    {
+        var result = _validator.Validate(null, new N8nOptions { MaxAttempts = maxAttempts });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("N8N__MAXATTEMPTS"));
+    }
+
+    [Fact]
+    public void Validate_NonPositiveTimeout_Fails()
+    {
+        var result = _validator.Validate(null, new N8nOptions { TimeoutSeconds = 0 });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures, f => f.Contains("N8N__TIMEOUTSECONDS"));
+    }
+}

@@ -11,10 +11,11 @@ namespace MindBot.Core.Commands;
 /// target file(s), and replies with the resulting content. Never touches the real vault, the
 /// write-job queue, or git.
 /// <para>
-/// <see cref="CommandResult.Operations"/> can never escape this command -- it is always converted
-/// to <see cref="CommandResult.DirectReply"/> or <see cref="CommandResult.Rejected"/> before
-/// returning, so <see cref="CommandExecutor"/> structurally never reaches its enqueue branch for a
-/// /preview invocation. Since <see cref="ScratchVaultOperationContext"/> and every operation
+/// Neither <see cref="CommandResult.Operations"/> nor <see cref="CommandResult.DeferredJob"/> can
+/// escape this command -- both are always converted to <see cref="CommandResult.DirectReply"/> or
+/// <see cref="CommandResult.Rejected"/> before returning, so <see cref="CommandExecutor"/>
+/// structurally never reaches either of its enqueue branches for a /preview invocation. Since
+/// <see cref="ScratchVaultOperationContext"/> and every operation
 /// handler only ever reference <see cref="IVaultOperationContext"/> (never IGitService or
 /// IIngestUnitOfWork), zero git calls and zero queue writes are structural guarantees here, not
 /// just untested code paths.
@@ -50,6 +51,10 @@ public sealed class PreviewCommand(IServiceProvider serviceProvider, VaultOperat
         {
             CommandResult.DirectReply direct => new CommandResult.DirectReply($"[preview] {direct.Text}"),
             CommandResult.Rejected rejected => rejected,
+            // Reported, never enqueued -- and since the inner command only *describes* the job
+            // rather than running it, previewing /ytsummary makes zero network calls either.
+            CommandResult.DeferredJob deferred => new CommandResult.DirectReply(
+                $"[preview] would queue a '{deferred.Kind}' job: {deferred.Payload}"),
             CommandResult.Operations ops => await PreviewOperationsAsync(ops, scratch, cancellationToken),
             _ => throw new InvalidOperationException($"Unhandled {nameof(CommandResult)} type {innerResult.GetType().Name}."),
         };

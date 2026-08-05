@@ -32,9 +32,11 @@ public class MessageRouterTests
         services.AddSingleton<ICommand, AppendCommand>();
         services.AddSingleton<ICommand, StatusCommand>();
         services.AddSingleton<ICommand, PreviewCommand>();
+        services.AddSingleton<ICommand, YouTubeSummaryCommand>();
         services.AddSingleton<ICommand, BareTextCommand>(); // catch-all: must stay last
         services.AddSingleton<CommandDispatcher>();
         services.AddSingleton<CommandExecutor>();
+        services.AddSingleton(Options.Create(new N8nOptions { BaseUrl = "https://n8n.example/webhook" }));
 
         var executor = services.BuildServiceProvider().GetRequiredService<CommandExecutor>();
         var router = new MessageRouter(planner, timeProvider, NullLogger<MessageRouter>.Instance, executor);

@@ -48,6 +48,26 @@ public interface IIngestUnitOfWork : IAsyncDisposable
         long senderId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Records work that cannot finish inside this transaction — see <see cref="BackgroundJob"/>.
+    /// Enqueuing here rather than from the worker is what extends the duplicate guard to deferred
+    /// work: the job and the processed-update row become durable together or not at all.
+    /// </summary>
+    Task EnqueueBackgroundJobAsync(
+        long updateId,
+        string kind,
+        string payload,
+        long chatId,
+        long senderId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks a background job done. Called by the worker in the same transaction that enqueues the
+    /// job's resulting write job, so a crash between the two cannot replay a completed pipeline and
+    /// file its note a second time.
+    /// </summary>
+    Task CompleteBackgroundJobAsync(long jobId, CancellationToken cancellationToken = default);
+
     Task MarkUpdateProcessedAsync(long updateId, CancellationToken cancellationToken = default);
 
     Task SetTelegramOffsetAsync(int offset, CancellationToken cancellationToken = default);
