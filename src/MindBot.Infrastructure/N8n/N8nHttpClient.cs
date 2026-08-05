@@ -78,14 +78,16 @@ public sealed class N8nHttpClient(HttpClient httpClient) : IN8nClient
     /// </summary>
     private static async Task<T> UnwrapAsync<T>(string path, HttpResponseMessage response, CancellationToken cancellationToken)
     {
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
         T[]? items;
         try
         {
-            items = await response.Content.ReadFromJsonAsync<T[]>(Json, cancellationToken);
+            items = JsonSerializer.Deserialize<T[]>(body, Json);
         }
         catch (JsonException ex)
         {
-            throw new N8nException($"n8n webhook '{path}' returned a body this client cannot read: {ex.Message}", ex);
+            throw new N8nException($"n8n webhook '{path}' returned a body this client cannot read: {ex.Message} | Body: {Truncate(body)}", ex);
         }
 
         if (items is null || items.Length == 0)

@@ -158,6 +158,8 @@ public sealed class N8nHttpClientTests
     {
         var (client, _) = Create("""{"not":"an array"}""");
 
-        await Assert.ThrowsAsync<N8nException>(() => client.ReduceChunksAsync(new SummarizeResult(1, [])));
+        var exception = await Assert.ThrowsAsync<N8nException>(() => client.ReduceChunksAsync(new SummarizeResult(1, [])));
+
+        Assert.Contains("not an array", exception.Message);
     }
 }
