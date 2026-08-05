@@ -161,6 +161,46 @@ public sealed class EfIngestUnitOfWork(
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task EnqueueBackgroundJobAsync(
+        long updateId,
+        string kind,
+        string payload,
+        long chatId,
+        long senderId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = timeProvider.GetUtcNow();
+
+        db.BackgroundJobs.Add(new BackgroundJobEntity
+        {
+            UpdateId = updateId,
+            Kind = kind,
+            Payload = payload,
+            ChatId = chatId,
+            SenderId = senderId,
+            Status = BackgroundJobStatus.Pending,
+            Attempts = 0,
+            EnqueuedAt = now,
+            // Claimable immediately; only a failed attempt pushes this forward.
+            NextAttemptAt = now,
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task CompleteBackgroundJobAsync(long jobId, CancellationToken cancellationToken = default)
+    {
+        var entity = await db.BackgroundJobs.FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+        if (entity is null)
+        {
+            return;
+        }
+
+        entity.Status = BackgroundJobStatus.Completed;
+        entity.LastError = null;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task MarkUpdateProcessedAsync(long updateId, CancellationToken cancellationToken = default)
     {
         db.ProcessedUpdates.Add(new ProcessedUpdateEntity

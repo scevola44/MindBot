@@ -25,6 +25,7 @@ public sealed class TelegramPollingHostedService(
     IIngestUnitOfWorkFactory unitOfWorkFactory,
     IRepositoryStateStore repositoryStateStore,
     WriteJobSignal writeJobSignal,
+    BackgroundJobSignal backgroundJobSignal,
     HealthSnapshot health,
     TimeProvider timeProvider,
     ILogger<TelegramPollingHostedService> logger) : BackgroundService
@@ -133,7 +134,10 @@ public sealed class TelegramPollingHostedService(
             return;
         }
 
+        // Both are woken unconditionally: this loop does not know which kind of work the router
+        // queued, and an extra wake-up on an empty queue costs one query.
         writeJobSignal.Signal();
+        backgroundJobSignal.Signal();
 
         // The note is durable at this point. Failing to deliver the confirmation costs the user a
         // reply, not the capture, so it must not abort anything.

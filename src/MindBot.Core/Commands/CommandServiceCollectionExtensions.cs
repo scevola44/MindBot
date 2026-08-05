@@ -24,6 +24,7 @@ public static class CommandServiceCollectionExtensions
         services.AddSingleton<ICommand, AppendCommand>();
         services.AddSingleton<ICommand, StatusCommand>();
         services.AddSingleton<ICommand, PreviewCommand>();
+        services.AddSingleton<ICommand, YouTubeSummaryCommand>();
         services.AddSingleton<ICommand, BareTextCommand>();
 
         services.AddSingleton<CommandDispatcher>();

@@ -37,6 +37,35 @@ public sealed class WriteJobEntity
     public WriteJob ToDomain() => new(Id, UpdateId, RelativeFolder, Filename, Content, ChatId, SenderId, EnqueuedAt, Status);
 }
 
+public sealed class BackgroundJobEntity
+{
+    public long Id { get; set; }
+
+    public long UpdateId { get; set; }
+
+    public string Kind { get; set; } = string.Empty;
+
+    public string Payload { get; set; } = string.Empty;
+
+    public long ChatId { get; set; }
+
+    public long SenderId { get; set; }
+
+    public BackgroundJobStatus Status { get; set; }
+
+    public int Attempts { get; set; }
+
+    public string? LastError { get; set; }
+
+    public DateTimeOffset EnqueuedAt { get; set; }
+
+    /// <summary>Earliest time the worker may claim this job. Advanced by the retry backoff after a failure.</summary>
+    public DateTimeOffset NextAttemptAt { get; set; }
+
+    public BackgroundJob ToDomain() =>
+        new(Id, UpdateId, Kind, Payload, ChatId, SenderId, Status, Attempts, LastError, EnqueuedAt, NextAttemptAt);
+}
+
 public sealed class ConversationStateEntity
 {
     public long ChatId { get; set; }

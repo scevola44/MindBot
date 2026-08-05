@@ -267,6 +267,99 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         Assert.Equal(9876, state.LastTelegramOffset);
     }
 
+    private IBackgroundJobQueue BackgroundJobs => _services.GetRequiredService<IBackgroundJobQueue>();
+
+    [Fact]
+    public async Task BackgroundJob_RoundTripsThroughTheRealSchema()
+    {
+        await using (var unitOfWork = await Factory.BeginAsync())
+        {
+            await unitOfWork.EnqueueBackgroundJobAsync(800, BackgroundJobKinds.YouTubeSummary, """{"videoId":"qIeJ7Gw9v_I"}""", 42, 7);
+            await unitOfWork.MarkUpdateProcessedAsync(800);
+            await unitOfWork.CommitAsync();
+        }
+
+        var job = await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now);
+
+        Assert.NotNull(job);
+        Assert.Equal("""{"videoId":"qIeJ7Gw9v_I"}""", job.Payload);
+        Assert.Equal(800, job.UpdateId);
+        Assert.Equal(42, job.ChatId);
+        Assert.Equal(BackgroundJobStatus.Pending, job.Status);
+        Assert.Equal(0, job.Attempts);
+    }
+
+    /// <summary>The rollback guarantee has to cover deferred work too, not just write jobs.</summary>
+    [Fact]
+    public async Task BackgroundJob_FromAnUncommittedUnitOfWork_LeavesNoTrace()
+    {
+        await using (var unitOfWork = await Factory.BeginAsync())
+        {
+            await unitOfWork.EnqueueBackgroundJobAsync(810, BackgroundJobKinds.YouTubeSummary, "{}", 42, 7);
+            await unitOfWork.MarkUpdateProcessedAsync(810);
+        }
+
+        Assert.Null(await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now));
+    }
+
+    [Fact]
+    public async Task BackgroundJob_BackingOff_IsNotClaimableUntilItsRetryTime()
+    {
+        var job = await EnqueueBackgroundJobAsync(820);
+
+        await BackgroundJobs.RecordFailureAsync(job.Id, "n8n was down", _time.Now.AddMinutes(5));
+
+        Assert.Null(await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now));
+
+        var later = await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now.AddMinutes(6));
+        Assert.NotNull(later);
+        Assert.Equal(1, later.Attempts);
+        Assert.Equal("n8n was down", later.LastError);
+    }
+
+    [Fact]
+    public async Task BackgroundJob_CompletedInTheSameTransactionAsItsNote_IsNotClaimedAgain()
+    {
+        var job = await EnqueueBackgroundJobAsync(830);
+
+        await using (var unitOfWork = await Factory.BeginAsync())
+        {
+            var filename = await unitOfWork.ReserveFilenameAsync("some-video.md");
+            await unitOfWork.EnqueueWriteJobAsync(job.UpdateId, VaultLayout.FleetingFolder, filename, "the note", 42, 7);
+            await unitOfWork.CompleteBackgroundJobAsync(job.Id);
+            await unitOfWork.CommitAsync();
+        }
+
+        Assert.Null(await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now));
+        Assert.Equal(1, await Queue.GetPendingCountAsync());
+    }
+
+    [Fact]
+    public async Task BackgroundJob_MarkedFailed_IsNeverClaimedAgain()
+    {
+        var job = await EnqueueBackgroundJobAsync(840);
+
+        await BackgroundJobs.MarkFailedAsync(job.Id, "gave up");
+
+        Assert.Null(await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now.AddDays(1)));
+    }
+
+    [Fact]
+    public async Task PruneAsync_RemovesFinishedBackgroundJobsButKeepsPendingOnes()
+    {
+        var finished = await EnqueueBackgroundJobAsync(850);
+        await BackgroundJobs.MarkFailedAsync(finished.Id, "gave up");
+        await EnqueueBackgroundJobAsync(851);
+
+        _time.Now = _time.Now.AddDays(30);
+        await _services.GetRequiredService<StateMaintenance>().PruneAsync();
+
+        // The still-pending job outlives the prune; only the failed one is gone.
+        var remaining = await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now);
+        Assert.NotNull(remaining);
+        Assert.Equal(851, remaining.UpdateId);
+    }
+
     [Fact]
     public async Task PruneAsync_RemovesProcessedUpdatesPastRetention()
     {
@@ -277,6 +370,17 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
 
         await using var check = await Factory.BeginAsync();
         Assert.False(await check.IsUpdateProcessedAsync(600));
+    }
+
+    private async Task<BackgroundJob> EnqueueBackgroundJobAsync(long updateId)
+    {
+        await using var unitOfWork = await Factory.BeginAsync();
+        await unitOfWork.EnqueueBackgroundJobAsync(updateId, BackgroundJobKinds.YouTubeSummary, """{"videoId":"qIeJ7Gw9v_I"}""", 42, 7);
+        await unitOfWork.MarkUpdateProcessedAsync(updateId);
+        await unitOfWork.CommitAsync();
+
+        var jobs = await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now);
+        return jobs!;
     }
 
     /// <summary>Mirrors what the polling loop does for one accepted update.</summary>

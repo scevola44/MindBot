@@ -192,7 +192,7 @@ public sealed class InMemoryRepositoryStateStore(string? lastPushedSha = null) :
 /// persistence. Filename reservation mirrors the real implementation: existing files on disk and
 /// filenames already claimed by pending jobs both push the candidate along.
 /// </summary>
-public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null) : IIngestUnitOfWork
+public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null, Action<long>? onBackgroundJobCompleted = null) : IIngestUnitOfWork
 {
     private readonly Dictionary<long, ConversationState> _conversations = [];
     private readonly HashSet<long> _processedUpdates = [];
@@ -200,6 +200,10 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null) : IIngest
     private readonly Dictionary<(string Folder, string Filename), string> _latestContent = [];
 
     public List<(long UpdateId, string RelativeFolder, string Filename, string Content, long ChatId, long SenderId)> Enqueued { get; } = [];
+
+    public List<(long UpdateId, string Kind, string Payload, long ChatId, long SenderId)> EnqueuedBackgroundJobs { get; } = [];
+
+    public List<long> CompletedBackgroundJobs { get; } = [];
 
     public bool Committed { get; private set; }
 
@@ -276,6 +280,25 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null) : IIngest
     {
         Enqueued.Add((updateId, relativeFolder, filename, content, chatId, senderId));
         _latestContent[(relativeFolder, filename)] = content;
+        return Task.CompletedTask;
+    }
+
+    public Task EnqueueBackgroundJobAsync(
+        long updateId,
+        string kind,
+        string payload,
+        long chatId,
+        long senderId,
+        CancellationToken cancellationToken = default)
+    {
+        EnqueuedBackgroundJobs.Add((updateId, kind, payload, chatId, senderId));
+        return Task.CompletedTask;
+    }
+
+    public Task CompleteBackgroundJobAsync(long jobId, CancellationToken cancellationToken = default)
+    {
+        CompletedBackgroundJobs.Add(jobId);
+        onBackgroundJobCompleted?.Invoke(jobId);
         return Task.CompletedTask;
     }
 

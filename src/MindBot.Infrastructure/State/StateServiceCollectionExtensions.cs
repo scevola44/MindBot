@@ -24,6 +24,7 @@ public static class StateServiceCollectionExtensions
 
         services.AddSingleton<IIngestUnitOfWorkFactory, EfIngestUnitOfWorkFactory>();
         services.AddSingleton<IWriteJobQueue, EfWriteJobQueue>();
+        services.AddSingleton<IBackgroundJobQueue, EfBackgroundJobQueue>();
         services.AddSingleton<IRepositoryStateStore, EfRepositoryStateStore>();
         services.AddSingleton<StateMaintenance>();
 

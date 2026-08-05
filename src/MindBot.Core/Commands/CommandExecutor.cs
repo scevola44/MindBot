@@ -42,6 +42,12 @@ public sealed class CommandExecutor(
             case CommandResult.Rejected rejected:
                 return $"Can't do that: {rejected.Reason}";
 
+            case CommandResult.DeferredJob deferred:
+                // Lands in the same transaction as MarkUpdateProcessedAsync, so the job and the
+                // dedupe record commit together -- a redelivered update cannot queue it twice.
+                await unitOfWork.EnqueueBackgroundJobAsync(updateId, deferred.Kind, deferred.Payload, chatId, senderId, cancellationToken);
+                return deferred.Reply;
+
             case CommandResult.Operations ops:
                 var resolved = new List<ResolvedWrite>(ops.Items.Count);
                 try

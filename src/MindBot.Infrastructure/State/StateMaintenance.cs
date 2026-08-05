@@ -45,20 +45,30 @@ public sealed class StateMaintenance(
             .ToList();
         db.WriteJobs.RemoveRange(staleJobs);
 
+        // Failed jobs are pruned alongside completed ones: the failure was already reported to the
+        // chat when it happened, so the row's only remaining value is the log line above.
+        var staleBackgroundJobs = (await db.BackgroundJobs
+                .Where(j => j.Status != BackgroundJobStatus.Pending)
+                .ToListAsync(cancellationToken))
+            .Where(j => j.EnqueuedAt < updateCutoff)
+            .ToList();
+        db.BackgroundJobs.RemoveRange(staleBackgroundJobs);
+
         var staleConversations = (await db.Conversations.ToListAsync(cancellationToken))
             .Where(c => c.UpdatedAt < conversationCutoff)
             .ToList();
         db.Conversations.RemoveRange(staleConversations);
 
-        var prunedCount = staleUpdates.Count + staleJobs.Count + staleConversations.Count;
+        var prunedCount = staleUpdates.Count + staleJobs.Count + staleBackgroundJobs.Count + staleConversations.Count;
         if (prunedCount > 0)
         {
             await db.SaveChangesAsync(cancellationToken);
 
             logger.LogInformation(
-                "Pruned durability state: {Updates} processed update(s), {Jobs} completed job(s), {Conversations} expired conversation(s).",
+                "Pruned durability state: {Updates} processed update(s), {Jobs} completed job(s), {BackgroundJobs} finished background job(s), {Conversations} expired conversation(s).",
                 staleUpdates.Count,
                 staleJobs.Count,
+                staleBackgroundJobs.Count,
                 staleConversations.Count);
         }
     }

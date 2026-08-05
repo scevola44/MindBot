@@ -22,6 +22,10 @@ services:
       VAULT__ROOT: /vault
       # Must stay outside /vault for the same reason as GIT__RECOVERYPATH.
       STATE__DATABASEPATH: /data/mindbot.db
+      # Optional: the n8n webhook base URL that backs /ytsummary. Leave unset to disable the
+      # command; the bot starts normally either way.
+      N8N__BASEURL: ${N8N__BASEURL:-}
+      N8N__TIMEOUTSECONDS: ${N8N__TIMEOUTSECONDS:-600}
     volumes:
       - vault-data:/vault
       - state-data:/data
