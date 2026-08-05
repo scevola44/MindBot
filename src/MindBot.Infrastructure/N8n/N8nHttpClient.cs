@@ -7,9 +7,11 @@ namespace MindBot.Infrastructure.N8n;
 /// <summary>
 /// Talks to the five n8n webhooks over HTTP.
 /// <para>
-/// Every one of them answers with a single-element JSON array — that is how an n8n workflow returns
-/// its last node's item list — so <see cref="UnwrapAsync{T}"/> is applied uniformly rather than each
-/// call inventing its own unwrapping.
+/// Each workflow's "Respond to Webhook" node is configured per-workflow to answer either with the
+/// full item list (a JSON array) or with just the last node's first item (a bare JSON object) —
+/// n8n calls these "All Entries" and "First Entry JSON" respectively, and nothing on this side
+/// controls which one a given workflow uses. <see cref="UnwrapAsync{T}"/> accepts either shape
+/// uniformly rather than each call inventing its own unwrapping.
 /// </para>
 /// <para>
 /// No retry policy here on purpose. A retry belongs at the job level, where it can survive a
@@ -72,30 +74,35 @@ public sealed class N8nHttpClient(HttpClient httpClient) : IN8nClient
     }
 
     /// <summary>
-    /// Reads the single item out of the workflow's response array. A workflow whose last node
-    /// filtered everything out returns "[]" with a 200, which would otherwise surface as a
-    /// NullReferenceException minutes later instead of a named failure here.
+    /// Reads the single result out of the workflow's response, whether it is a JSON array (take the
+    /// first item) or a bare JSON object (use it directly) — n8n's "Respond to Webhook" node can be
+    /// configured either way per-workflow. A workflow whose last node filtered everything out answers
+    /// "[]", and the bare-object equivalent is a literal "null" body; both would otherwise surface as
+    /// a NullReferenceException minutes later instead of a named failure here.
     /// </summary>
     private static async Task<T> UnwrapAsync<T>(string path, HttpResponseMessage response, CancellationToken cancellationToken)
     {
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        T[]? items;
+        T? result;
         try
         {
-            items = JsonSerializer.Deserialize<T[]>(body, Json);
+            using var document = JsonDocument.Parse(body);
+            result = document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray().Select(element => element.Deserialize<T>(Json)).FirstOrDefault()
+                : document.RootElement.Deserialize<T>(Json);
         }
         catch (JsonException ex)
         {
             throw new N8nException($"n8n webhook '{path}' returned a body this client cannot read: {ex.Message} | Body: {Truncate(body)}", ex);
         }
 
-        if (items is null || items.Length == 0)
+        if (result is null)
         {
             throw new N8nException($"n8n webhook '{path}' returned an empty result.");
         }
 
-        return items[0];
+        return result;
     }
 
     private static string Truncate(string body) =>

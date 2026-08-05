@@ -85,6 +85,31 @@ public sealed class N8nHttpClientTests
         Assert.Equal(5.76, segment.Duration);
     }
 
+    /// <summary>
+    /// n8n's "Respond to Webhook" node can be set to "First Entry JSON" instead of "All Entries," in
+    /// which case the wire body is a bare object rather than a one-element array — this is the shape
+    /// that produced the "could not be converted to TranscriptResult[]" failure.
+    /// </summary>
+    [Fact]
+    public async Task ParsesTheSampleTranscriptResponseWhenTheWorkflowRespondsWithABareObject()
+    {
+        var (client, _) = Create(
+            """
+            {"transcript":"the whole thing",
+              "segments":[{"text":"Some articles we've acquired from the","start":0,"duration":5.76}],
+              "video_id":"qIeJ7Gw9v_I",
+              "video_url":"https://youtube.com/watch?v=qIeJ7Gw9v_I"}
+            """);
+
+        var result = await client.GetTranscriptAsync(new TranscriptRequest("https://www.youtube.com/watch?v=qIeJ7Gw9v_I"));
+
+        Assert.Equal("qIeJ7Gw9v_I", result.VideoId);
+        Assert.Equal("the whole thing", result.Transcript);
+        var segment = Assert.Single(result.Segments);
+        Assert.Equal("Some articles we've acquired from the", segment.Text);
+        Assert.Equal(5.76, segment.Duration);
+    }
+
     [Fact]
     public async Task ParsesTheSampleChunkerResponse()
     {
@@ -140,6 +165,19 @@ public sealed class N8nHttpClientTests
         Assert.Contains("empty result", exception.Message);
     }
 
+    /// <summary>The bare-object equivalent of "[]": a workflow in "First Entry JSON" mode with no
+    /// upstream items to respond with answers 200 with a literal "null" body.</summary>
+    [Fact]
+    public async Task ANullBodyIsANamedFailure()
+    {
+        var (client, _) = Create("null");
+
+        var exception = await Assert.ThrowsAsync<N8nException>(() => client.ExtractKeywordsAsync(new ReduceResult("s")));
+
+        Assert.Contains("extract-keywords", exception.Message);
+        Assert.Contains("empty result", exception.Message);
+    }
+
     [Fact]
     public async Task ANonSuccessStatusIsANamedFailureCarryingTheBody()
     {
@@ -156,10 +194,11 @@ public sealed class N8nHttpClientTests
     [Fact]
     public async Task AnUnreadableBodyIsANamedFailure()
     {
-        var (client, _) = Create("""{"not":"an array"}""");
+        var (client, _) = Create("\"not an object or array\"");
 
         var exception = await Assert.ThrowsAsync<N8nException>(() => client.ReduceChunksAsync(new SummarizeResult(1, [])));
 
-        Assert.Contains("""{"not":"an array"}""", exception.Message);
+        Assert.Contains("chunks-reducer", exception.Message);
+        Assert.Contains("not an object or array", exception.Message);
     }
 }
