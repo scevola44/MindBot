@@ -66,7 +66,10 @@ public sealed class N8nHttpClient(HttpClient httpClient) : IN8nClient
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                throw new N8nException($"n8n webhook '{path}' returned {(int)response.StatusCode}: {Truncate(body)}");
+                throw new N8nException($"n8n webhook '{path}' returned {(int)response.StatusCode}: {Truncate(body)}")
+                {
+                    StatusCode = response.StatusCode,
+                };
             }
 
             return await UnwrapAsync<TResponse>(path, response, cancellationToken);

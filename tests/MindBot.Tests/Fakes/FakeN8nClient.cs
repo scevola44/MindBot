@@ -1,3 +1,4 @@
+using System.Net;
 using MindBot.Core.YouTube;
 
 namespace MindBot.Tests.Fakes;
@@ -30,6 +31,9 @@ public sealed class FakeN8nClient : IN8nClient
 
     /// <summary>Set to make the named call throw, exercising the runner's failure handling.</summary>
     public string? FailOnCall { get; set; }
+
+    /// <summary>The status the failing call's exception carries. Defaults to a plain 500.</summary>
+    public HttpStatusCode FailureStatusCode { get; set; } = HttpStatusCode.InternalServerError;
 
     public Task<TranscriptResult> GetTranscriptAsync(TranscriptRequest request, CancellationToken cancellationToken = default)
     {
@@ -83,7 +87,10 @@ public sealed class FakeN8nClient : IN8nClient
         Calls.Add(call);
         if (FailOnCall == call)
         {
-            throw new N8nException($"n8n webhook '{call}' returned 500: boom");
+            throw new N8nException($"n8n webhook '{call}' returned {(int)FailureStatusCode}: boom")
+            {
+                StatusCode = FailureStatusCode,
+            };
         }
     }
 }

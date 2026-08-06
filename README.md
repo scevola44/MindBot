@@ -272,6 +272,16 @@ never be filed twice. A failed attempt is retried with an exponential backoff
 (`N8N__MAXATTEMPTS`, `N8N__RETRYBASESECONDS`); when the attempts run out, the
 chat is told why.
 
+A `502`/`503`/`504` from a webhook — typically an HTML gateway-timeout page from
+whatever reverse proxy fronts the n8n instance — means that proxy cut the
+request before `summarize-chunks` finished, not that MindBot itself timed out.
+Raising `N8N__TIMEOUTSECONDS` will not help: MindBot's own wait is already the
+generous side (600s by default), longer than the request lived. The fix is to
+raise the proxy's read/send timeout (and check n8n's own workflow execution
+timeout) so it comfortably exceeds the worst-case `summarize-chunks` duration
+for a max-chunk video. `N8N__MAXATTEMPTS`/`N8N__RETRYBASESECONDS` can be raised
+in the meantime to give transient overload more chances to clear on retry.
+
 `/preview /ytsummary <url>` reports what would be queued without contacting n8n.
 
 ## Health endpoint

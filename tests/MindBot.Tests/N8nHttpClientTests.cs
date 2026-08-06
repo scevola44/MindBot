@@ -189,6 +189,23 @@ public sealed class N8nHttpClientTests
         Assert.Contains("get-yt-transcript", exception.Message);
         Assert.Contains("404", exception.Message);
         Assert.Contains("workflow not active", exception.Message);
+        Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+    }
+
+    /// <summary>A 504 means the reverse proxy in front of n8n gave up, not n8n itself, so the
+    /// exception carries the status separately from its (HTML, not JSON) body for callers that
+    /// want to tell a gateway failure apart from an n8n application error.</summary>
+    [Fact]
+    public async Task AGatewayTimeoutIsANamedFailureCarryingItsStatusCode()
+    {
+        var (client, _) = Create("<html><body>504 Gateway Time-out</body></html>", HttpStatusCode.GatewayTimeout);
+
+        var exception = await Assert.ThrowsAsync<N8nException>(() =>
+            client.SummarizeChunksAsync(new ChunkerResult(2, [])));
+
+        Assert.Contains("summarize-chunks", exception.Message);
+        Assert.Contains("504", exception.Message);
+        Assert.Equal(HttpStatusCode.GatewayTimeout, exception.StatusCode);
     }
 
     [Fact]

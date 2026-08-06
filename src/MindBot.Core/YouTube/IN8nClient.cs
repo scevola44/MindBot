@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace MindBot.Core.YouTube;
 
 /// <summary>
@@ -19,4 +21,8 @@ public interface IN8nClient
 }
 
 /// <summary>Raised when a webhook is unreachable, returns a non-success status, or returns a body this client cannot read.</summary>
-public sealed class N8nException(string message, Exception? innerException = null) : Exception(message, innerException);
+public sealed class N8nException(string message, Exception? innerException = null) : Exception(message, innerException)
+{
+    /// <summary>The response status when the webhook answered with a non-success status; null otherwise.</summary>
+    public HttpStatusCode? StatusCode { get; init; }
+}

@@ -1,3 +1,4 @@
+using System.Net;
 using MindBot.Core.Commands;
 using MindBot.Core.Durability;
 using MindBot.Core.Notes;
@@ -152,7 +153,13 @@ public sealed class YouTubeSummaryJobRunner(
                 attempts,
                 maxAttempts);
 
-            await AbandonAsync(job, $"{stage} kept failing: {exception.Message}", cancellationToken);
+            // A gateway-style failure means an upstream proxy cut the request, not n8n itself, so
+            // its body is an HTML error page rather than anything meaningful to show the user.
+            var reason = IsGatewayTimeout(exception)
+                ? $"{stage} timed out upstream — the summarisation service didn't respond in time"
+                : $"{stage} kept failing: {exception.Message}";
+
+            await AbandonAsync(job, reason, cancellationToken);
             return BackgroundJobOutcome.Failed;
         }
 
@@ -175,4 +182,7 @@ public sealed class YouTubeSummaryJobRunner(
         await queue.MarkFailedAsync(job.Id, reason, cancellationToken);
         await replySender.SendAsync(job.ChatId, $"Could not summarise that video — {reason}", cancellationToken);
     }
+
+    private static bool IsGatewayTimeout(Exception exception) =>
+        exception is N8nException { StatusCode: HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout };
 }

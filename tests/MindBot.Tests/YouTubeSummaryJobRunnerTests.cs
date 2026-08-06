@@ -1,3 +1,4 @@
+using System.Net;
 using MindBot.Core.Durability;
 using MindBot.Core.Notes;
 using MindBot.Core.Operations;
@@ -192,6 +193,24 @@ public sealed class YouTubeSummaryJobRunnerTests
         // Permanently failed, so the worker never picks it up again.
         harness.Time.Now = Now.AddDays(1);
         Assert.Equal(BackgroundJobOutcome.Idle, await runner.RunNextAsync());
+    }
+
+    /// <summary>A 502/503/504 is the reverse proxy in front of n8n giving up, so its HTML body is
+    /// noise to the end user — the chat reply should say something useful instead of dumping it.</summary>
+    [Fact]
+    public async Task AGatewayTimeoutGivesUpWithACleanMessageInsteadOfTheRawProxyBody()
+    {
+        using var harness = new Harness();
+        harness.N8nOptions.MaxAttempts = 1;
+        harness.N8n.FailOnCall = "summarize-chunks";
+        harness.N8n.FailureStatusCode = HttpStatusCode.GatewayTimeout;
+        harness.Queue.Enqueue(Payload);
+
+        Assert.Equal(BackgroundJobOutcome.Failed, await harness.CreateRunner().RunNextAsync());
+
+        var reply = Assert.Single(harness.Replies.Sent).Text;
+        Assert.Contains("timed out upstream", reply);
+        Assert.DoesNotContain("boom", reply);
     }
 
     /// <summary>An unreadable payload cannot become readable, so retrying it would just burn attempts.</summary>
