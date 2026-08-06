@@ -201,4 +201,34 @@ public sealed class N8nHttpClientTests
         Assert.Contains("chunks-reducer", exception.Message);
         Assert.Contains("not an object or array", exception.Message);
     }
+
+    /// <summary>
+    /// Simulates <see cref="HttpClient.Timeout"/> expiring: SocketsHttpHandler throws a
+    /// <see cref="TaskCanceledException"/> whose <see cref="Exception.InnerException"/> is a
+    /// <see cref="TimeoutException"/>, distinct from user-requested cancellation or a connection
+    /// failure. The message must name the configured timeout so this is diagnosable without
+    /// cross-referencing the HttpClient logging category.
+    /// </summary>
+    private sealed class TimeoutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.", new TimeoutException());
+    }
+
+    [Fact]
+    public async Task AClientSideTimeoutIsANamedFailureCarryingTheConfiguredTimeout()
+    {
+        var httpClient = new HttpClient(new TimeoutHandler())
+        {
+            BaseAddress = new Uri("https://n8n.example/webhook/"),
+            Timeout = TimeSpan.FromSeconds(90),
+        };
+        var client = new N8nHttpClient(httpClient);
+
+        var exception = await Assert.ThrowsAsync<N8nException>(() =>
+            client.SummarizeChunksAsync(new ChunkerResult(1, [])));
+
+        Assert.Contains("summarize-chunks", exception.Message);
+        Assert.Contains("timed out after 90s", exception.Message);
+    }
 }

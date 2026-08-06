@@ -56,6 +56,11 @@ public sealed class N8nHttpClient(HttpClient httpClient) : IN8nClient
         {
             response = await httpClient.PostAsJsonAsync(path, request, Json, cancellationToken);
         }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && ex.InnerException is TimeoutException)
+        {
+            throw new N8nException(
+                $"n8n webhook '{path}' timed out after {httpClient.Timeout.TotalSeconds:0}s (N8N__TIMEOUTSECONDS).", ex);
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             throw new N8nException($"n8n webhook '{path}' could not be reached: {ex.Message}", ex);
