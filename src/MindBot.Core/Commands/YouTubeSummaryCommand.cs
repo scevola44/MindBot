@@ -70,7 +70,7 @@ public sealed class YouTubeSummaryCommand(IOptions<N8nOptions> n8nOptions) : ICo
         return Task.FromResult<CommandResult>(new CommandResult.DeferredJob(
             BackgroundJobKinds.YouTubeSummary,
             payload,
-            $"Summarising {YouTubeUrl.CanonicalUrl(videoId)}. This takes a few minutes — I'll send the note filename when it's done."));
+            $"Summarising video {videoId}. This takes a few minutes — I'll send the note title and filename when it's done."));
     }
 
     public static YouTubeSummaryPayload ParsePayload(string payload) =>
