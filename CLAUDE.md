@@ -44,6 +44,17 @@ These are non-negotiable decisions. Do not substitute alternatives.
   header or the WebSocket's first frame (never a URL), and are redacted by the log formatter
 - Operator alerts go to the Telegram operator chat if configured, otherwise into the web chat
 
+### Client (`/client`)
+- Expo / React Native, TypeScript. Add packages with `npx expo install` so versions match the
+  Expo SDK; the version-age rule below still applies (`npm install --before=<date>` enforces it)
+- **Do not use:** EAS cloud builds or any service that uploads the source; builds stay local
+- **Invariant:** The web export must contain no inline `<script>`; the bot's CSP blocks it.
+  Client CI checks this
+- **Invariant:** The client never logs (no `console`, enforced by lint), and stores only the
+  device token and unsent messages — never the chat history
+- The live-stream cursor advances only with messages received over the WebSocket, never with
+  ids from a `POST /api/messages` response
+
 ### Configuration & Data
 - Frontmatter is serialized/deserialized with **YamlDotNet**
   - Never build or patch YAML by string manipulation
