@@ -124,6 +124,27 @@ public sealed class WebSocketTests
         Assert.Equal(Enumerable.Range(1, Sends * 2).Select(i => (long)i), ids);
     }
 
+    [Fact]
+    public async Task RevokingADevice_ClosesItsOpenSocket()
+    {
+        await using var harness = await WebHarness.StartAsync();
+        var (_, token) = await harness.AddDeviceAsync("phone");
+        var (_, otherToken) = await harness.AddDeviceAsync("laptop");
+
+        using var socket = await ConnectAsync(harness);
+        await SendAsync(socket, new { type = "auth", token, after = 0 });
+        await ReceiveAsync(socket); // ready
+
+        await ((IDeviceTokenStore)harness.Services.GetService(typeof(IDeviceTokenStore))!).RevokeAsync("phone");
+
+        // The next line written to the chat must not reach the revoked device.
+        await WebHarness.SendAsync(harness.Client(otherToken), "after revocation");
+
+        var result = await socket.ReceiveAsync(new byte[64 * 1024], new CancellationTokenSource(Timeout).Token);
+        Assert.Equal(WebSocketMessageType.Close, result.MessageType);
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, socket.CloseStatus);
+    }
+
     private static async Task<WebSocket> ConnectAsync(WebHarness harness)
     {
         var client = harness.Server.CreateWebSocketClient();

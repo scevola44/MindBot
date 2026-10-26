@@ -27,6 +27,12 @@ public sealed class WebSocketSession(
 {
     public static readonly TimeSpan AuthTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// How often an idle session re-checks its token. Revoking a device must cut off a socket
+    /// that is already open, not only new requests; a session also re-checks before every send.
+    /// </summary>
+    public static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(60);
+
     private const int MaxClientFrameBytes = 4096;
     private const int PageSize = 200;
 
@@ -63,8 +69,15 @@ public sealed class WebSocketSession(
 
             var lastSentId = await SendNewAsync(socket, auth.After ?? 0, sessionEnd.Token);
 
-            await foreach (var _ in subscription.Rings.ReadAllAsync(sessionEnd.Token))
+            while (await WaitForRingAsync(subscription, sessionEnd.Token))
             {
+                if (await deviceTokens.AuthenticateAsync(auth.Token, sessionEnd.Token) is null)
+                {
+                    logger.LogInformation("Closing the web chat socket of device {DeviceId}: its token was revoked.", device.Id);
+                    await CloseAsync(socket, WebSocketCloseStatus.PolicyViolation, "unauthorized");
+                    return;
+                }
+
                 lastSentId = await SendNewAsync(socket, lastSentId, sessionEnd.Token);
             }
 
@@ -81,6 +94,31 @@ public sealed class WebSocketSession(
         finally
         {
             await CloseAsync(socket, WebSocketCloseStatus.NormalClosure, "bye");
+        }
+    }
+
+    /// <summary>
+    /// True when the bell rang or <see cref="RecheckInterval"/> passed (both lead to a token
+    /// re-check and a read), false when the subscription ended.
+    /// </summary>
+    private static async Task<bool> WaitForRingAsync(WebMessageHub.Subscription subscription, CancellationToken cancellationToken)
+    {
+        using var interval = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        interval.CancelAfter(RecheckInterval);
+
+        try
+        {
+            if (!await subscription.Rings.WaitToReadAsync(interval.Token))
+            {
+                return false;
+            }
+
+            subscription.Rings.TryRead(out _);
+            return true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return true;
         }
     }
 

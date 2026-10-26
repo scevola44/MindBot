@@ -78,6 +78,12 @@ These are non-negotiable decisions. Do not substitute alternatives.
 - **Invariant:** No operation moves, renames, or deletes a note
   - This is by design, not an oversight — see project phase documentation
 
+## Documentation
+
+- **Keep `README.md` current in every phase.** Any change to behaviour, configuration,
+  deployment, commands, endpoints or security properties updates the README in the same PR
+- `CLAUDE.md` changes when a constraint or invariant changes, as above
+
 ## Before Implementation
 
 - **Verify current package and image versions before pinning**
