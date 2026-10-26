@@ -1,4 +1,5 @@
 using MindBot.Core.Commands;
+using MindBot.Core.Durability;
 using MindBot.Core.Operations;
 using MindBot.Core.Options;
 using MindBot.Tests.Fakes;
@@ -44,7 +45,7 @@ public class CommandExecutorTests
         var executor = CreateExecutor(command, out var unitOfWork, out var vaultRoot);
         using var _ = vaultRoot;
 
-        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chatId: 42, senderId: 7, "anything");
+        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chat: ChatAddress.Telegram(42), senderId: 7, "anything");
 
         Assert.Equal("note.md", reply);
         var enqueued = Assert.Single(unitOfWork.Enqueued);
@@ -60,7 +61,7 @@ public class CommandExecutorTests
         var executor = CreateExecutor(command, out var unitOfWork, out var vaultRoot);
         using var _ = vaultRoot;
 
-        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chatId: 42, senderId: 7, "anything");
+        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chat: ChatAddress.Telegram(42), senderId: 7, "anything");
 
         Assert.Equal("hello", reply);
         Assert.Empty(unitOfWork.Enqueued);
@@ -73,7 +74,7 @@ public class CommandExecutorTests
         var executor = CreateExecutor(command, out var unitOfWork, out var vaultRoot);
         using var _ = vaultRoot;
 
-        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chatId: 42, senderId: 7, "anything");
+        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chat: ChatAddress.Telegram(42), senderId: 7, "anything");
 
         Assert.Contains("bad input", reply);
         Assert.Empty(unitOfWork.Enqueued);
@@ -86,7 +87,7 @@ public class CommandExecutorTests
         var executor = CreateExecutor(command, out var unitOfWork, out var vaultRoot);
         using var _ = vaultRoot;
 
-        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 11, chatId: 42, senderId: 7, "anything");
+        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 11, chat: ChatAddress.Telegram(42), senderId: 7, "anything");
 
         Assert.Equal("on it", reply);
         Assert.Empty(unitOfWork.Enqueued);
@@ -95,7 +96,7 @@ public class CommandExecutorTests
         Assert.Equal(11, job.UpdateId);
         Assert.Equal("youtube-summary", job.Kind);
         Assert.Equal("""{"videoId":"abc"}""", job.Payload);
-        Assert.Equal(42, job.ChatId);
+        Assert.Equal(ChatAddress.Telegram(42), job.Chat);
         Assert.Equal(7, job.SenderId);
     }
 
@@ -109,7 +110,7 @@ public class CommandExecutorTests
         var executor = CreateExecutor(command, out var unitOfWork, out var vaultRoot);
         using var _ = vaultRoot;
 
-        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chatId: 42, senderId: 7, "anything");
+        var reply = await executor.ExecuteAsync(unitOfWork, updateId: 1, chat: ChatAddress.Telegram(42), senderId: 7, "anything");
 
         Assert.Contains("Could not complete", reply);
         Assert.Empty(unitOfWork.Enqueued); // the first operation's resolved write must NOT have been enqueued either

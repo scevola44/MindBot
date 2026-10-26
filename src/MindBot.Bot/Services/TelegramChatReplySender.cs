@@ -1,3 +1,4 @@
+using MindBot.Core.Durability;
 using MindBot.Core.Notifications;
 using Telegram.Bot;
 
@@ -11,8 +12,10 @@ namespace MindBot.Bot.Services;
 /// finished capture into a retried one.
 /// </para>
 /// </summary>
-public sealed class TelegramChatReplySender(ITelegramBotClient botClient, ILogger<TelegramChatReplySender> logger) : IChatReplySender
+public sealed class TelegramChatReplySender(ITelegramBotClient botClient, ILogger<TelegramChatReplySender> logger) : IChannelReplySender
 {
+    public Channel Channel => Channel.Telegram;
+
     public async Task SendAsync(long chatId, string text, CancellationToken cancellationToken = default)
     {
         try

@@ -1,3 +1,4 @@
+using MindBot.Core.Durability;
 using MindBot.Core.YouTube;
 
 namespace MindBot.Tests.Fakes;
@@ -101,11 +102,11 @@ public sealed class FakeVideoTitleResolver(string? title = "Daggerheart combat i
 
 public sealed class FakeChatReplySender : Core.Notifications.IChatReplySender
 {
-    public List<(long ChatId, string Text)> Sent { get; } = [];
+    public List<(ChatAddress Chat, string Text)> Sent { get; } = [];
 
-    public Task SendAsync(long chatId, string text, CancellationToken cancellationToken = default)
+    public Task SendAsync(ChatAddress chat, string text, CancellationToken cancellationToken = default)
     {
-        Sent.Add((chatId, text));
+        Sent.Add((chat, text));
         return Task.CompletedTask;
     }
 }

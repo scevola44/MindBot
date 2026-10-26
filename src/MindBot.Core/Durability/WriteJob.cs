@@ -20,7 +20,7 @@ public sealed record WriteJob(
     string RelativeFolder,
     string Filename,
     string Content,
-    long ChatId,
+    ChatAddress Chat,
     long SenderId,
     DateTimeOffset EnqueuedAt,
     WriteJobStatus Status);

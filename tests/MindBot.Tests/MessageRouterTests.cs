@@ -14,7 +14,7 @@ namespace MindBot.Tests;
 
 public class MessageRouterTests
 {
-    private const long ChatId = 42;
+    private static readonly ChatAddress Chat = ChatAddress.Telegram(42);
     private const long SenderId = 7;
 
     private static (MessageRouter Router, InMemoryIngestUnitOfWork UnitOfWork) CreateRouter()
@@ -44,7 +44,23 @@ public class MessageRouterTests
     }
 
     private static Task<string> RouteAsync(MessageRouter router, InMemoryIngestUnitOfWork unitOfWork, string text, long updateId = 1) =>
-        router.RouteAsync(unitOfWork, updateId, ChatId, SenderId, text);
+        router.RouteAsync(unitOfWork, updateId, Chat, SenderId, text);
+
+    [Fact]
+    public async Task RouteAsync_NewOnOneChannel_DoesNotCaptureTheSameChatIdOnAnother()
+    {
+        var (router, unitOfWork) = CreateRouter();
+        var web = new ChatAddress(Channel.Web, Chat.ChatId);
+
+        await router.RouteAsync(unitOfWork, 1, web, SenderId, "/new");
+        var reply = await router.RouteAsync(unitOfWork, 1, Chat, SenderId, "Just a quick thought");
+
+        // The Telegram message files as a fleeting note instead of becoming the web note's name.
+        Assert.EndsWith(".md", reply);
+        Assert.Equal(Chat, Assert.Single(unitOfWork.Enqueued).Chat);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(web).Stage);
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(Chat));
+    }
 
     [Fact]
     public async Task RouteAsync_New_AsksForName_AndSetsState()
@@ -54,7 +70,7 @@ public class MessageRouterTests
         var reply = await RouteAsync(router, unitOfWork, "/new");
 
         Assert.Equal("What would you like to name the note?", reply);
-        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(Chat).Stage);
     }
 
     [Fact]
@@ -64,7 +80,7 @@ public class MessageRouterTests
 
         await RouteAsync(router, unitOfWork, "/NEW");
 
-        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(Chat).Stage);
     }
 
     [Fact]
@@ -76,7 +92,7 @@ public class MessageRouterTests
         var reply = await RouteAsync(router, unitOfWork, "Groceries", updateId: 2);
 
         Assert.Equal("Got it. Now send me the note content.", reply);
-        var state = unitOfWork.Conversation(ChatId);
+        var state = unitOfWork.Conversation(Chat);
         Assert.Equal(ConversationStage.AwaitingNoteContent, state.Stage);
         Assert.Equal("Groceries", state.PendingNoteName);
     }
@@ -91,7 +107,7 @@ public class MessageRouterTests
         var reply = await RouteAsync(router, unitOfWork, "Milk and eggs", updateId: 3);
 
         Assert.Equal("groceries.md", reply);
-        Assert.Equal(ConversationState.None, unitOfWork.Conversation(ChatId));
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(Chat));
 
         var queued = Assert.Single(unitOfWork.Enqueued);
         Assert.Equal("groceries.md", queued.Filename);
@@ -108,7 +124,7 @@ public class MessageRouterTests
         var reply = await RouteAsync(router, unitOfWork, "/cancel", updateId: 2);
 
         Assert.Equal("Cancelled.", reply);
-        Assert.Equal(ConversationState.None, unitOfWork.Conversation(ChatId));
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(Chat));
     }
 
     [Fact]
@@ -154,19 +170,19 @@ public class MessageRouterTests
 
         await RouteAsync(router, unitOfWork, "/new", updateId: 3);
 
-        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(Chat).Stage);
     }
 
     [Fact]
     public async Task RouteAsync_AwaitingContentWithNoPendingName_RecoversAndClearsState()
     {
         var (router, unitOfWork) = CreateRouter();
-        await unitOfWork.SetConversationAsync(ChatId, new ConversationState(ConversationStage.AwaitingNoteContent));
+        await unitOfWork.SetConversationAsync(Chat, new ConversationState(ConversationStage.AwaitingNoteContent));
 
         var reply = await RouteAsync(router, unitOfWork, "some content");
 
         Assert.Contains("start again with /new", reply);
-        Assert.Equal(ConversationState.None, unitOfWork.Conversation(ChatId));
+        Assert.Equal(ConversationState.None, unitOfWork.Conversation(Chat));
         Assert.Empty(unitOfWork.Enqueued);
     }
 
@@ -177,7 +193,7 @@ public class MessageRouterTests
 
         await RouteAsync(router, unitOfWork, "/new@mybot");
 
-        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(ChatId).Stage);
+        Assert.Equal(ConversationStage.AwaitingNoteName, unitOfWork.Conversation(Chat).Stage);
     }
 
     [Fact]

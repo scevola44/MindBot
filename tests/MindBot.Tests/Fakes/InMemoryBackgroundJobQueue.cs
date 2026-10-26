@@ -17,7 +17,7 @@ public sealed class InMemoryBackgroundJobQueue : IBackgroundJobQueue
         string payload,
         string kind = BackgroundJobKinds.YouTubeSummary,
         long updateId = 1,
-        long chatId = 42,
+        ChatAddress? chat = null,
         long senderId = 7)
     {
         var job = new BackgroundJob(
@@ -25,7 +25,7 @@ public sealed class InMemoryBackgroundJobQueue : IBackgroundJobQueue
             updateId,
             kind,
             payload,
-            chatId,
+            chat ?? ChatAddress.Telegram(42),
             senderId,
             BackgroundJobStatus.Pending,
             Attempts: 0,

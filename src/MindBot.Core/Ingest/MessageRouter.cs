@@ -6,10 +6,10 @@ using Microsoft.Extensions.Logging;
 namespace MindBot.Core.Ingest;
 
 /// <summary>
-/// Decides what an incoming, already-authorized text message means: a /new or /cancel command, a
-/// reply within a pending /new conversation, or (via <see cref="CommandExecutor"/>) a DI-discovered
-/// command -- including plain text, which files as a timestamp-only fleeting note. Returns the
-/// reply text to send back to the chat.
+/// Decides what an incoming, already-authorized text message means, whichever channel it came
+/// from: a /new or /cancel command, a reply within a pending /new conversation, or (via
+/// <see cref="CommandExecutor"/>) a DI-discovered command -- including plain text, which files as
+/// a timestamp-only fleeting note. Returns the reply text to send back to the chat.
 /// <para>
 /// Every state change it makes goes through the supplied <see cref="IIngestUnitOfWork"/>, so
 /// routing a message and durably queueing the resulting note commit or roll back together.
@@ -20,7 +20,7 @@ public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProv
     public async Task<string> RouteAsync(
         IIngestUnitOfWork unitOfWork,
         long updateId,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         string messageText,
         CancellationToken cancellationToken = default)
@@ -29,34 +29,34 @@ public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProv
 
         if (string.Equals(command, "/cancel", StringComparison.OrdinalIgnoreCase))
         {
-            var current = await unitOfWork.GetConversationAsync(chatId, cancellationToken);
+            var current = await unitOfWork.GetConversationAsync(chat, cancellationToken);
             if (current.Stage == ConversationStage.None)
             {
                 return "Nothing to cancel.";
             }
 
-            await unitOfWork.ClearConversationAsync(chatId, cancellationToken);
+            await unitOfWork.ClearConversationAsync(chat, cancellationToken);
             return "Cancelled.";
         }
 
         if (string.Equals(command, "/new", StringComparison.OrdinalIgnoreCase))
         {
-            await unitOfWork.SetConversationAsync(chatId, new ConversationState(ConversationStage.AwaitingNoteName), cancellationToken);
+            await unitOfWork.SetConversationAsync(chat, new ConversationState(ConversationStage.AwaitingNoteName), cancellationToken);
             return "What would you like to name the note?";
         }
 
         if (string.Equals(command, "/task", StringComparison.OrdinalIgnoreCase)
             || string.Equals(command, "/todo", StringComparison.OrdinalIgnoreCase))
         {
-            return await HandleTaskCommandAsync(unitOfWork, updateId, chatId, senderId, messageText, cancellationToken);
+            return await HandleTaskCommandAsync(unitOfWork, updateId, chat, senderId, messageText, cancellationToken);
         }
 
-        var state = await unitOfWork.GetConversationAsync(chatId, cancellationToken);
+        var state = await unitOfWork.GetConversationAsync(chat, cancellationToken);
         switch (state.Stage)
         {
             case ConversationStage.AwaitingNoteName:
                 await unitOfWork.SetConversationAsync(
-                    chatId,
+                    chat,
                     state with { Stage = ConversationStage.AwaitingNoteContent, PendingNoteName = messageText.Trim() },
                     cancellationToken);
                 return "Got it. Now send me the note content.";
@@ -64,37 +64,37 @@ public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProv
             case ConversationStage.AwaitingNoteContent:
                 if (string.IsNullOrEmpty(state.PendingNoteName))
                 {
-                    logger.LogError("Chat {ChatId} was awaiting note content with no pending note name; clearing state.", chatId);
-                    await unitOfWork.ClearConversationAsync(chatId, cancellationToken);
+                    logger.LogError("Chat {Chat} was awaiting note content with no pending note name; clearing state.", chat);
+                    await unitOfWork.ClearConversationAsync(chat, cancellationToken);
                     return "Something went wrong with that note. Please start again with /new.";
                 }
 
                 var named = notePlanner.PlanNamedNote(state.PendingNoteName, messageText);
-                await unitOfWork.ClearConversationAsync(chatId, cancellationToken);
-                return await QueueAsync(unitOfWork, updateId, chatId, senderId, named, cancellationToken);
+                await unitOfWork.ClearConversationAsync(chat, cancellationToken);
+                return await QueueAsync(unitOfWork, updateId, chat, senderId, named, cancellationToken);
 
             default:
-                return await commandExecutor.ExecuteAsync(unitOfWork, updateId, chatId, senderId, messageText, cancellationToken);
+                return await commandExecutor.ExecuteAsync(unitOfWork, updateId, chat, senderId, messageText, cancellationToken);
         }
     }
 
     private static async Task<string> QueueAsync(
         IIngestUnitOfWork unitOfWork,
         long updateId,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         NoteDraft draft,
         CancellationToken cancellationToken)
     {
         var filename = await unitOfWork.ReserveFilenameAsync(draft.BaseFilename, cancellationToken);
-        await unitOfWork.EnqueueWriteJobAsync(updateId, VaultLayout.FleetingFolder, filename, draft.Content, chatId, senderId, cancellationToken);
+        await unitOfWork.EnqueueWriteJobAsync(updateId, VaultLayout.FleetingFolder, filename, draft.Content, chat, senderId, cancellationToken);
         return filename;
     }
 
     private async Task<string> HandleTaskCommandAsync(
         IIngestUnitOfWork unitOfWork,
         long updateId,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         string messageText,
         CancellationToken cancellationToken)
@@ -113,7 +113,7 @@ public sealed class MessageRouter(NotePlanner notePlanner, TimeProvider timeProv
         var existingContent = await unitOfWork.GetLatestNoteContentAsync(folder, filename, cancellationToken);
         var content = TaskNoteContentBuilder.Append(existingContent, items, now);
 
-        await unitOfWork.EnqueueWriteJobAsync(updateId, folder, filename, content, chatId, senderId, cancellationToken);
+        await unitOfWork.EnqueueWriteJobAsync(updateId, folder, filename, content, chat, senderId, cancellationToken);
 
         return items.Count == 1
             ? $"Added to {filename}."
