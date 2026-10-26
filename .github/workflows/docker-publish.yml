@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+  # PRs build the image (including the web client stage) without logging in or pushing, so a
+  # broken Dockerfile is caught before merge rather than when main tries to publish.
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 env:
@@ -26,6 +30,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -47,7 +52,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

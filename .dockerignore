@@ -3,3 +3,6 @@
 .git/
 secrets/
 *.md
+client/node_modules/
+client/dist/
+client/.expo/

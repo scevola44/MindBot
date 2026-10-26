@@ -5,10 +5,17 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-UTC}
-      TELEGRAM__BOTTOKEN: ${TELEGRAM__BOTTOKEN}
-      TELEGRAM__ALLOWEDUSERIDS: ${TELEGRAM__ALLOWEDUSERIDS}
+      # Optional since the web channel: leave both unset to run without Telegram. At least one of
+      # Telegram and WEB__ENABLED must be on, or the bot refuses to start.
+      TELEGRAM__BOTTOKEN: ${TELEGRAM__BOTTOKEN:-}
+      TELEGRAM__ALLOWEDUSERIDS: ${TELEGRAM__ALLOWEDUSERIDS:-}
       # Optional: chat that receives operational alerts (branch rewritten, push failing).
       TELEGRAM__OPERATORCHATID: ${TELEGRAM__OPERATORCHATID:-}
+      # The web chat channel and its client. Off by default. The in-container port is fixed; change
+      # WEB_HOST_PORT below to move it on the host.
+      WEB__ENABLED: ${WEB__ENABLED:-false}
+      WEB__PORT: 8081
+      WEB__HISTORYRETENTIONDAYS: ${WEB__HISTORYRETENTIONDAYS:-30}
       GIT__REMOTEURL: ${GIT__REMOTEURL}
       GIT__BRANCH: ${GIT__BRANCH:-bot-inbox}
       GIT__SSHKEYPATH: /run/secrets/git_ssh_key
@@ -31,6 +38,12 @@ services:
       - state-data:/data
       - ${GIT_SSH_KEY_PATH:-./secrets/id_ed25519}:/run/secrets/git_ssh_key:ro
       - ${GIT_KNOWN_HOSTS_PATH:-./secrets/known_hosts}:/run/secrets/known_hosts:ro
+    ports:
+      # The web chat, on the host's LOOPBACK ONLY. Reach it over your VPN with
+      # `tailscale serve --bg --https=443 http://127.0.0.1:8081`; never change this to
+      # 0.0.0.0 or drop the address, which would publish it on every interface.
+      # Nothing listens here unless WEB__ENABLED=true. Port 8080 (/health) is never published.
+      - "127.0.0.1:${WEB_HOST_PORT:-8081}:8081"
     healthcheck:
       # Probed inside the container, so port 8080 is never published to the host.
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]

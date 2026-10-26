@@ -154,8 +154,10 @@ chmod 600 secrets/id_ed25519
 ssh-keyscan your-git-host.example.com > secrets/known_hosts
 
 cat > .env <<'EOF'
+# At least one channel: Telegram, the web chat, or both.
 TELEGRAM__BOTTOKEN=123456789:your-bot-token
 TELEGRAM__ALLOWEDUSERIDS=111111111,222222222
+WEB__ENABLED=true
 GIT__REMOTEURL=git@your-git-host.example.com:you/vault.git
 GIT__BRANCH=bot-inbox
 TZ=Europe/London
@@ -192,6 +194,14 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u your-github-username --password-std
   commit the bot's own state onto the branch,
 - the SSH private key read-only at `/run/secrets/git_ssh_key`,
 - a `known_hosts` file read-only at `/run/secrets/known_hosts`.
+
+It publishes one port: the web chat, on `127.0.0.1:${WEB_HOST_PORT:-8081}` —
+the host's loopback only, for `tailscale serve` to pick up (see
+[Deploying the web chat](#deploying-the-web-chat)). Nothing listens there unless
+`WEB__ENABLED=true`. The health port (8080) is never published.
+
+The image also contains the web client, built from `client/` and served by the
+bot from `/app/wwwroot` (`WEB__STATICROOT`).
 
 On start the bot migrates its state database, clones the repository if needed,
 checks out `GIT__BRANCH` (creating it from the default branch and pushing it if
@@ -326,9 +336,39 @@ tailscale serve --bg --https=443 http://127.0.0.1:8081
 `tailscale serve` also provides the HTTPS certificate. Responses carry a strict
 Content-Security-Policy, and API responses are never cached.
 
-> `docker-compose.yml` does not pass the `WEB__*` settings, publish the web port
-> or bundle the web client yet; that arrives in the next deployment step. Until
-> then the channel can be enabled when running the bot directly.
+> **Never use `tailscale funnel`** (or `serve` with funnel enabled) for this port:
+> funnel publishes it to the whole internet.
+
+### Deploying the web chat
+
+With the bot running under `docker compose` (see
+[Running with Docker](#running-with-docker)):
+
+1. **Turn the channel on.** Set `WEB__ENABLED=true` in `.env` and run
+   `docker compose up -d`. Telegram can stay on alongside it, or be switched off
+   by removing `TELEGRAM__BOTTOKEN` and `TELEGRAM__ALLOWEDUSERIDS`.
+2. **Check it is on loopback only.**
+   ```bash
+   docker compose ps   # PORTS should read 127.0.0.1:8081->8081/tcp, never 0.0.0.0
+   curl -sI http://127.0.0.1:8081/ | head -1   # HTTP/1.1 200 OK
+   ```
+3. **Expose it on your tailnet.** On the server, with
+   [Tailscale](https://tailscale.com/download) installed, and MagicDNS and HTTPS
+   certificates enabled for your tailnet (see Tailscale's "Enabling HTTPS" guide):
+   ```bash
+   sudo tailscale serve --bg http://127.0.0.1:8081
+   tailscale serve status   # shows https://<server>.<tailnet>.ts.net
+   ```
+   `--bg` keeps serving across reboots; `tailscale serve reset` removes it.
+4. **Create a device token** for each phone or browser:
+   ```bash
+   docker compose exec mindbot dotnet MindBot.Bot.dll device add phone
+   ```
+5. **Open `https://<server>.<tailnet>.ts.net`** on a device that is on the
+   tailnet, paste the token, and send a message.
+
+To move the host port, set `WEB_HOST_PORT` in `.env` and point `tailscale serve`
+at the new port; the container side stays 8081.
 
 ### Devices
 
@@ -405,14 +445,17 @@ nothing from anywhere else. The chat history is *not* stored on the device —
 only messages still waiting to be sent — so note content does not sit in
 browser storage.
 
-**Serving it.** Build the web export and point the bot at it:
+**Serving it.** The Docker image already contains the built client, so with
+compose there is nothing to do (see [Deploying the web chat](#deploying-the-web-chat)).
+When running the bot directly, build the export and point the bot at it:
 
 ```bash
 cd client && npm ci && npm run export:web     # writes client/dist
 WEB__STATICROOT=/absolute/path/to/client/dist # then start the bot
 ```
 
-Then open the web port (over the VPN) in a browser.
+The image build fails if the export ever contains an inline `<script>`, which
+the bot's CSP would block.
 
 **On a phone (development).** With Tailscale on, run `npx expo start` in
 `client/` and open the project in [Expo Go](https://expo.dev/go), or in a
