@@ -30,7 +30,7 @@ public sealed class EfIngestUnitOfWorkFactory(
 }
 
 /// <summary>
-/// A SQLite transaction spanning everything one Telegram update changes. Individual operations
+/// A SQLite transaction spanning everything one inbound message changes. Individual operations
 /// call SaveChanges so later steps in the same update (notably filename reservation) can see
 /// earlier ones, but nothing becomes visible to another connection until <see cref="CommitAsync"/>.
 /// </summary>
@@ -43,12 +43,12 @@ public sealed class EfIngestUnitOfWork(
 {
     private bool _committed;
 
-    public Task<bool> IsUpdateProcessedAsync(long updateId, CancellationToken cancellationToken = default) =>
-        db.ProcessedUpdates.AnyAsync(u => u.UpdateId == updateId, cancellationToken);
+    public Task<bool> IsUpdateProcessedAsync(Channel channel, long updateId, CancellationToken cancellationToken = default) =>
+        db.ProcessedUpdates.AnyAsync(u => u.Channel == channel && u.UpdateId == updateId, cancellationToken);
 
-    public async Task<ConversationState> GetConversationAsync(long chatId, CancellationToken cancellationToken = default)
+    public async Task<ConversationState> GetConversationAsync(ChatAddress chat, CancellationToken cancellationToken = default)
     {
-        var entity = await db.Conversations.FirstOrDefaultAsync(c => c.ChatId == chatId, cancellationToken);
+        var entity = await FindConversationAsync(chat, cancellationToken);
         if (entity is null)
         {
             return ConversationState.None;
@@ -66,12 +66,12 @@ public sealed class EfIngestUnitOfWork(
         return new ConversationState(entity.Stage, entity.PendingNoteName);
     }
 
-    public async Task SetConversationAsync(long chatId, ConversationState state, CancellationToken cancellationToken = default)
+    public async Task SetConversationAsync(ChatAddress chat, ConversationState state, CancellationToken cancellationToken = default)
     {
-        var entity = await db.Conversations.FirstOrDefaultAsync(c => c.ChatId == chatId, cancellationToken);
+        var entity = await FindConversationAsync(chat, cancellationToken);
         if (entity is null)
         {
-            entity = new ConversationStateEntity { ChatId = chatId };
+            entity = new ConversationStateEntity { Channel = chat.Channel, ChatId = chat.ChatId };
             db.Conversations.Add(entity);
         }
 
@@ -82,9 +82,9 @@ public sealed class EfIngestUnitOfWork(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task ClearConversationAsync(long chatId, CancellationToken cancellationToken = default)
+    public async Task ClearConversationAsync(ChatAddress chat, CancellationToken cancellationToken = default)
     {
-        var entity = await db.Conversations.FirstOrDefaultAsync(c => c.ChatId == chatId, cancellationToken);
+        var entity = await FindConversationAsync(chat, cancellationToken);
         if (entity is null)
         {
             return;
@@ -142,7 +142,7 @@ public sealed class EfIngestUnitOfWork(
         string relativeFolder,
         string filename,
         string content,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         CancellationToken cancellationToken = default)
     {
@@ -152,7 +152,8 @@ public sealed class EfIngestUnitOfWork(
             RelativeFolder = relativeFolder,
             Filename = filename,
             Content = content,
-            ChatId = chatId,
+            Channel = chat.Channel,
+            ChatId = chat.ChatId,
             SenderId = senderId,
             EnqueuedAt = timeProvider.GetUtcNow(),
             Status = WriteJobStatus.Pending,
@@ -165,7 +166,7 @@ public sealed class EfIngestUnitOfWork(
         long updateId,
         string kind,
         string payload,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         CancellationToken cancellationToken = default)
     {
@@ -176,7 +177,8 @@ public sealed class EfIngestUnitOfWork(
             UpdateId = updateId,
             Kind = kind,
             Payload = payload,
-            ChatId = chatId,
+            Channel = chat.Channel,
+            ChatId = chat.ChatId,
             SenderId = senderId,
             Status = BackgroundJobStatus.Pending,
             Attempts = 0,
@@ -201,10 +203,11 @@ public sealed class EfIngestUnitOfWork(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task MarkUpdateProcessedAsync(long updateId, CancellationToken cancellationToken = default)
+    public async Task MarkUpdateProcessedAsync(Channel channel, long updateId, CancellationToken cancellationToken = default)
     {
         db.ProcessedUpdates.Add(new ProcessedUpdateEntity
         {
+            Channel = channel,
             UpdateId = updateId,
             ReceivedAt = timeProvider.GetUtcNow(),
         });
@@ -227,6 +230,9 @@ public sealed class EfIngestUnitOfWork(
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    private Task<ConversationStateEntity?> FindConversationAsync(ChatAddress chat, CancellationToken cancellationToken) =>
+        db.Conversations.FirstOrDefaultAsync(c => c.Channel == chat.Channel && c.ChatId == chat.ChatId, cancellationToken);
+
     public async Task CommitAsync(CancellationToken cancellationToken = default)
     {
         await transaction.CommitAsync(cancellationToken);
@@ -237,7 +243,7 @@ public sealed class EfIngestUnitOfWork(
     {
         if (!_committed)
         {
-            // Nothing was durable, so Telegram will redeliver the update and it is processed afresh.
+            // Nothing was durable, so the channel will redeliver the message and it is processed afresh.
             try
             {
                 await transaction.RollbackAsync();

@@ -3,12 +3,15 @@ using MindBot.Core.Durability;
 namespace MindBot.Infrastructure.State;
 
 /// <summary>
-/// An update Telegram has delivered and the bot has fully accepted. Existence of this row is the
-/// duplicate guard: it is written in the same transaction as the resulting write job, so a crash
-/// can never leave one without the other.
+/// An inbound message the bot has fully accepted. Existence of this row is the duplicate guard: it
+/// is written in the same transaction as the resulting write job, so a crash can never leave one
+/// without the other. Keyed on (<see cref="Channel"/>, <see cref="UpdateId"/>) because each channel
+/// numbers its own messages.
 /// </summary>
 public sealed class ProcessedUpdateEntity
 {
+    public Channel Channel { get; set; }
+
     public long UpdateId { get; set; }
 
     public DateTimeOffset ReceivedAt { get; set; }
@@ -26,6 +29,8 @@ public sealed class WriteJobEntity
 
     public string Content { get; set; } = string.Empty;
 
+    public Channel Channel { get; set; }
+
     public long ChatId { get; set; }
 
     public long SenderId { get; set; }
@@ -34,7 +39,7 @@ public sealed class WriteJobEntity
 
     public WriteJobStatus Status { get; set; }
 
-    public WriteJob ToDomain() => new(Id, UpdateId, RelativeFolder, Filename, Content, ChatId, SenderId, EnqueuedAt, Status);
+    public WriteJob ToDomain() => new(Id, UpdateId, RelativeFolder, Filename, Content, new ChatAddress(Channel, ChatId), SenderId, EnqueuedAt, Status);
 }
 
 public sealed class BackgroundJobEntity
@@ -46,6 +51,8 @@ public sealed class BackgroundJobEntity
     public string Kind { get; set; } = string.Empty;
 
     public string Payload { get; set; } = string.Empty;
+
+    public Channel Channel { get; set; }
 
     public long ChatId { get; set; }
 
@@ -63,11 +70,13 @@ public sealed class BackgroundJobEntity
     public DateTimeOffset NextAttemptAt { get; set; }
 
     public BackgroundJob ToDomain() =>
-        new(Id, UpdateId, Kind, Payload, ChatId, SenderId, Status, Attempts, LastError, EnqueuedAt, NextAttemptAt);
+        new(Id, UpdateId, Kind, Payload, new ChatAddress(Channel, ChatId), SenderId, Status, Attempts, LastError, EnqueuedAt, NextAttemptAt);
 }
 
 public sealed class ConversationStateEntity
 {
+    public Channel Channel { get; set; }
+
     public long ChatId { get; set; }
 
     public ConversationStage Stage { get; set; }

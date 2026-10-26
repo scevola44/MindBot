@@ -25,7 +25,7 @@ public sealed class CommandExecutor(
     public async Task<string> ExecuteAsync(
         IIngestUnitOfWork unitOfWork,
         long updateId,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         string messageText,
         CancellationToken cancellationToken = default)
@@ -45,7 +45,7 @@ public sealed class CommandExecutor(
             case CommandResult.DeferredJob deferred:
                 // Lands in the same transaction as MarkUpdateProcessedAsync, so the job and the
                 // dedupe record commit together -- a redelivered update cannot queue it twice.
-                await unitOfWork.EnqueueBackgroundJobAsync(updateId, deferred.Kind, deferred.Payload, chatId, senderId, cancellationToken);
+                await unitOfWork.EnqueueBackgroundJobAsync(updateId, deferred.Kind, deferred.Payload, chat, senderId, cancellationToken);
                 return deferred.Reply;
 
             case CommandResult.Operations ops:
@@ -64,7 +64,7 @@ public sealed class CommandExecutor(
 
                 foreach (var write in resolved)
                 {
-                    await unitOfWork.EnqueueWriteJobAsync(updateId, write.RelativeFolder, write.Filename, write.Content, chatId, senderId, cancellationToken);
+                    await unitOfWork.EnqueueWriteJobAsync(updateId, write.RelativeFolder, write.Filename, write.Content, chat, senderId, cancellationToken);
                 }
 
                 return ops.Reply;

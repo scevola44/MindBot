@@ -99,7 +99,7 @@ public sealed class YouTubeSummaryJobRunner(
         }
 
         logger.LogInformation("Summarised {VideoId} into {Filename}.", payload.VideoId, filename);
-        await replySender.SendAsync(job.ChatId, $"Summarised \"{summary.Title}\" → {filename}", cancellationToken);
+        await replySender.SendAsync(job.Chat, $"Summarised \"{summary.Title}\" → {filename}", cancellationToken);
 
         return BackgroundJobOutcome.Completed;
     }
@@ -123,7 +123,7 @@ public sealed class YouTubeSummaryJobRunner(
             write.RelativeFolder,
             write.Filename,
             write.Content,
-            job.ChatId,
+            job.Chat,
             job.SenderId,
             cancellationToken);
 
@@ -173,6 +173,6 @@ public sealed class YouTubeSummaryJobRunner(
     private async Task AbandonAsync(BackgroundJob job, string reason, CancellationToken cancellationToken)
     {
         await queue.MarkFailedAsync(job.Id, reason, cancellationToken);
-        await replySender.SendAsync(job.ChatId, $"Could not summarise that video — {reason}", cancellationToken);
+        await replySender.SendAsync(job.Chat, $"Could not summarise that video — {reason}", cancellationToken);
     }
 }

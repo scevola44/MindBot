@@ -85,7 +85,7 @@ public sealed class YouTubeSummaryJobRunnerTests
         var write = Assert.Single(unitOfWork.Enqueued);
         Assert.Equal(VaultLayout.FleetingFolder, write.RelativeFolder);
         Assert.Equal("daggerheart-combat-is-broken.md", write.Filename);
-        Assert.Equal(job.ChatId, write.ChatId);
+        Assert.Equal(job.Chat, write.Chat);
         Assert.Equal(job.SenderId, write.SenderId);
         Assert.Equal(job.UpdateId, write.UpdateId);
 
@@ -111,15 +111,28 @@ public sealed class YouTubeSummaryJobRunnerTests
     }
 
     [Fact]
+    public async Task AJobFromTheWebChannel_RepliesAndFilesOnTheWebChannel()
+    {
+        using var harness = new Harness();
+        var web = new ChatAddress(Channel.Web, 4242);
+        harness.Queue.Enqueue(Payload, chat: web);
+
+        await harness.CreateRunner().RunNextAsync();
+
+        Assert.Equal(web, Assert.Single(harness.Replies.Sent).Chat);
+        Assert.Equal(web, Assert.Single(harness.UnitOfWorkFactory.Last.Enqueued).Chat);
+    }
+
+    [Fact]
     public async Task RepliesToTheChatThatAskedForIt()
     {
         using var harness = new Harness();
-        var job = harness.Queue.Enqueue(Payload, chatId: 4242);
+        var job = harness.Queue.Enqueue(Payload, chat: ChatAddress.Telegram(4242));
 
         await harness.CreateRunner().RunNextAsync();
 
         var reply = Assert.Single(harness.Replies.Sent);
-        Assert.Equal(4242, reply.ChatId);
+        Assert.Equal(ChatAddress.Telegram(4242), reply.Chat);
         Assert.Contains("daggerheart-combat-is-broken.md", reply.Text);
         Assert.Equal(BackgroundJobStatus.Completed, harness.Queue[job.Id].Status);
     }

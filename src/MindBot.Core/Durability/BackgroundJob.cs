@@ -22,7 +22,7 @@ public sealed record BackgroundJob(
     long UpdateId,
     string Kind,
     string Payload,
-    long ChatId,
+    ChatAddress Chat,
     long SenderId,
     BackgroundJobStatus Status,
     int Attempts,

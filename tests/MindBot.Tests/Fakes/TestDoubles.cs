@@ -140,11 +140,11 @@ public sealed class InMemoryWriteJobQueue : IWriteJobQueue
         string filename,
         string content,
         long updateId = 1,
-        long chatId = 42,
+        ChatAddress? chat = null,
         long senderId = 7,
         string relativeFolder = VaultLayout.FleetingFolder)
     {
-        var job = new WriteJob(_nextId++, updateId, relativeFolder, filename, content, chatId, senderId, DateTimeOffset.UnixEpoch, WriteJobStatus.Pending);
+        var job = new WriteJob(_nextId++, updateId, relativeFolder, filename, content, chat ?? ChatAddress.Telegram(42), senderId, DateTimeOffset.UnixEpoch, WriteJobStatus.Pending);
         _jobs.Add(job);
         return job;
     }
@@ -194,14 +194,14 @@ public sealed class InMemoryRepositoryStateStore(string? lastPushedSha = null) :
 /// </summary>
 public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null, Action<long>? onBackgroundJobCompleted = null) : IIngestUnitOfWork
 {
-    private readonly Dictionary<long, ConversationState> _conversations = [];
-    private readonly HashSet<long> _processedUpdates = [];
+    private readonly Dictionary<ChatAddress, ConversationState> _conversations = [];
+    private readonly HashSet<(Channel Channel, long UpdateId)> _processedUpdates = [];
     private readonly HashSet<string> _reserved = [];
     private readonly Dictionary<(string Folder, string Filename), string> _latestContent = [];
 
-    public List<(long UpdateId, string RelativeFolder, string Filename, string Content, long ChatId, long SenderId)> Enqueued { get; } = [];
+    public List<(long UpdateId, string RelativeFolder, string Filename, string Content, ChatAddress Chat, long SenderId)> Enqueued { get; } = [];
 
-    public List<(long UpdateId, string Kind, string Payload, long ChatId, long SenderId)> EnqueuedBackgroundJobs { get; } = [];
+    public List<(long UpdateId, string Kind, string Payload, ChatAddress Chat, long SenderId)> EnqueuedBackgroundJobs { get; } = [];
 
     public List<long> CompletedBackgroundJobs { get; } = [];
 
@@ -209,26 +209,26 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null, Action<lo
 
     public int? TelegramOffset { get; private set; }
 
-    public void SeedProcessed(long updateId) => _processedUpdates.Add(updateId);
+    public void SeedProcessed(long updateId, Channel channel = Channel.Telegram) => _processedUpdates.Add((channel, updateId));
 
-    public ConversationState Conversation(long chatId) =>
-        _conversations.TryGetValue(chatId, out var state) ? state : ConversationState.None;
+    public ConversationState Conversation(ChatAddress chat) =>
+        _conversations.TryGetValue(chat, out var state) ? state : ConversationState.None;
 
-    public Task<bool> IsUpdateProcessedAsync(long updateId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_processedUpdates.Contains(updateId));
+    public Task<bool> IsUpdateProcessedAsync(Channel channel, long updateId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_processedUpdates.Contains((channel, updateId)));
 
-    public Task<ConversationState> GetConversationAsync(long chatId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Conversation(chatId));
+    public Task<ConversationState> GetConversationAsync(ChatAddress chat, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Conversation(chat));
 
-    public Task SetConversationAsync(long chatId, ConversationState state, CancellationToken cancellationToken = default)
+    public Task SetConversationAsync(ChatAddress chat, ConversationState state, CancellationToken cancellationToken = default)
     {
-        _conversations[chatId] = state;
+        _conversations[chat] = state;
         return Task.CompletedTask;
     }
 
-    public Task ClearConversationAsync(long chatId, CancellationToken cancellationToken = default)
+    public Task ClearConversationAsync(ChatAddress chat, CancellationToken cancellationToken = default)
     {
-        _conversations.Remove(chatId);
+        _conversations.Remove(chat);
         return Task.CompletedTask;
     }
 
@@ -274,11 +274,11 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null, Action<lo
         string relativeFolder,
         string filename,
         string content,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         CancellationToken cancellationToken = default)
     {
-        Enqueued.Add((updateId, relativeFolder, filename, content, chatId, senderId));
+        Enqueued.Add((updateId, relativeFolder, filename, content, chat, senderId));
         _latestContent[(relativeFolder, filename)] = content;
         return Task.CompletedTask;
     }
@@ -287,11 +287,11 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null, Action<lo
         long updateId,
         string kind,
         string payload,
-        long chatId,
+        ChatAddress chat,
         long senderId,
         CancellationToken cancellationToken = default)
     {
-        EnqueuedBackgroundJobs.Add((updateId, kind, payload, chatId, senderId));
+        EnqueuedBackgroundJobs.Add((updateId, kind, payload, chat, senderId));
         return Task.CompletedTask;
     }
 
@@ -302,9 +302,9 @@ public sealed class InMemoryIngestUnitOfWork(string? vaultRoot = null, Action<lo
         return Task.CompletedTask;
     }
 
-    public Task MarkUpdateProcessedAsync(long updateId, CancellationToken cancellationToken = default)
+    public Task MarkUpdateProcessedAsync(Channel channel, long updateId, CancellationToken cancellationToken = default)
     {
-        _processedUpdates.Add(updateId);
+        _processedUpdates.Add((channel, updateId));
         return Task.CompletedTask;
     }
 

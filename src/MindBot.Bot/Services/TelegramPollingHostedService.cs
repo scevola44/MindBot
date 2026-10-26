@@ -108,7 +108,7 @@ public sealed class TelegramPollingHostedService(
         {
             await using var unitOfWork = await unitOfWorkFactory.BeginAsync(cancellationToken);
 
-            if (await unitOfWork.IsUpdateProcessedAsync(update.Id, cancellationToken))
+            if (await unitOfWork.IsUpdateProcessedAsync(Channel.Telegram, update.Id, cancellationToken))
             {
                 logger.LogInformation(
                     "Update {UpdateId} was already processed before a restart; skipping the redelivery.",
@@ -119,12 +119,12 @@ public sealed class TelegramPollingHostedService(
             reply = await messageRouter.RouteAsync(
                 unitOfWork,
                 update.Id,
-                message.Chat.Id,
+                ChatAddress.Telegram(message.Chat.Id),
                 senderId,
                 message.Text,
                 cancellationToken);
 
-            await unitOfWork.MarkUpdateProcessedAsync(update.Id, cancellationToken);
+            await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, update.Id, cancellationToken);
             await unitOfWork.SetTelegramOffsetAsync(update.Id + 1, cancellationToken);
             await unitOfWork.CommitAsync(cancellationToken);
         }

@@ -25,6 +25,9 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
                 b.Property<int>("Attempts")
                     .HasColumnType("INTEGER");
 
+                b.Property<int>("Channel")
+                    .HasColumnType("INTEGER");
+
                 b.Property<long>("ChatId")
                     .HasColumnType("INTEGER");
 
@@ -63,6 +66,9 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("MindBot.Infrastructure.State.ConversationStateEntity", b =>
             {
+                b.Property<int>("Channel")
+                    .HasColumnType("INTEGER");
+
                 b.Property<long>("ChatId")
                     .HasColumnType("INTEGER");
 
@@ -75,20 +81,23 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTimeOffset>("UpdatedAt")
                     .HasColumnType("TEXT");
 
-                b.HasKey("ChatId");
+                b.HasKey("Channel", "ChatId");
 
                 b.ToTable("Conversations", (string)null);
             });
 
         modelBuilder.Entity("MindBot.Infrastructure.State.ProcessedUpdateEntity", b =>
             {
+                b.Property<int>("Channel")
+                    .HasColumnType("INTEGER");
+
                 b.Property<long>("UpdateId")
                     .HasColumnType("INTEGER");
 
                 b.Property<DateTimeOffset>("ReceivedAt")
                     .HasColumnType("TEXT");
 
-                b.HasKey("UpdateId");
+                b.HasKey("Channel", "UpdateId");
 
                 b.HasIndex("ReceivedAt");
 
@@ -118,6 +127,9 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
             {
                 b.Property<long>("Id")
                     .ValueGeneratedOnAdd()
+                    .HasColumnType("INTEGER");
+
+                b.Property<int>("Channel")
                     .HasColumnType("INTEGER");
 
                 b.Property<long>("ChatId")

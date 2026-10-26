@@ -76,8 +76,8 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         Assert.Equal(0, await Queue.GetPendingCountAsync());
 
         await using var unitOfWork = await Factory.BeginAsync();
-        await unitOfWork.EnqueueWriteJobAsync(1, VaultLayout.FleetingFolder, "202607311200.md", "hello", 42, 7);
-        await unitOfWork.MarkUpdateProcessedAsync(1);
+        await unitOfWork.EnqueueWriteJobAsync(1, VaultLayout.FleetingFolder, "202607311200.md", "hello", ChatAddress.Telegram(42), 7);
+        await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, 1);
         await unitOfWork.CommitAsync();
 
         Assert.Equal(1, await Queue.GetPendingCountAsync());
@@ -101,15 +101,15 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.EnqueueWriteJobAsync(200, VaultLayout.FleetingFolder, "202607311200.md", "never committed", 42, 7);
-            await unitOfWork.MarkUpdateProcessedAsync(200);
+            await unitOfWork.EnqueueWriteJobAsync(200, VaultLayout.FleetingFolder, "202607311200.md", "never committed", ChatAddress.Telegram(42), 7);
+            await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, 200);
             // Disposed without CommitAsync — the crash-before-commit case.
         }
 
         Assert.Equal(0, await Queue.GetPendingCountAsync());
 
         await using var check = await Factory.BeginAsync();
-        Assert.False(await check.IsUpdateProcessedAsync(200));
+        Assert.False(await check.IsUpdateProcessedAsync(Channel.Telegram, 200));
     }
 
     [Fact]
@@ -168,8 +168,8 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
 
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.EnqueueWriteJobAsync(700, VaultLayout.DailyNotesFolder, "TODO - 2026-07-31.md", "fresher pending content", 42, 7);
-            await unitOfWork.MarkUpdateProcessedAsync(700);
+            await unitOfWork.EnqueueWriteJobAsync(700, VaultLayout.DailyNotesFolder, "TODO - 2026-07-31.md", "fresher pending content", ChatAddress.Telegram(42), 7);
+            await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, 700);
             await unitOfWork.CommitAsync();
         }
 
@@ -200,12 +200,12 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.SetConversationAsync(42, new ConversationState(ConversationStage.AwaitingNoteContent, "Groceries"));
+            await unitOfWork.SetConversationAsync(ChatAddress.Telegram(42), new ConversationState(ConversationStage.AwaitingNoteContent, "Groceries"));
             await unitOfWork.CommitAsync();
         }
 
         await using var next = await Factory.BeginAsync();
-        var state = await next.GetConversationAsync(42);
+        var state = await next.GetConversationAsync(ChatAddress.Telegram(42));
 
         Assert.Equal(ConversationStage.AwaitingNoteContent, state.Stage);
         Assert.Equal("Groceries", state.PendingNoteName);
@@ -216,7 +216,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.SetConversationAsync(42, new ConversationState(ConversationStage.AwaitingNoteName));
+            await unitOfWork.SetConversationAsync(ChatAddress.Telegram(42), new ConversationState(ConversationStage.AwaitingNoteName));
             await unitOfWork.CommitAsync();
         }
 
@@ -224,7 +224,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         _time.Now = _time.Now.AddHours(2);
 
         await using var next = await Factory.BeginAsync();
-        var state = await next.GetConversationAsync(42);
+        var state = await next.GetConversationAsync(ChatAddress.Telegram(42));
 
         Assert.Equal(ConversationState.None, state);
     }
@@ -274,8 +274,8 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.EnqueueBackgroundJobAsync(800, BackgroundJobKinds.YouTubeSummary, """{"videoId":"qIeJ7Gw9v_I"}""", 42, 7);
-            await unitOfWork.MarkUpdateProcessedAsync(800);
+            await unitOfWork.EnqueueBackgroundJobAsync(800, BackgroundJobKinds.YouTubeSummary, """{"videoId":"qIeJ7Gw9v_I"}""", ChatAddress.Telegram(42), 7);
+            await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, 800);
             await unitOfWork.CommitAsync();
         }
 
@@ -284,7 +284,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         Assert.NotNull(job);
         Assert.Equal("""{"videoId":"qIeJ7Gw9v_I"}""", job.Payload);
         Assert.Equal(800, job.UpdateId);
-        Assert.Equal(42, job.ChatId);
+        Assert.Equal(ChatAddress.Telegram(42), job.Chat);
         Assert.Equal(BackgroundJobStatus.Pending, job.Status);
         Assert.Equal(0, job.Attempts);
     }
@@ -295,8 +295,8 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using (var unitOfWork = await Factory.BeginAsync())
         {
-            await unitOfWork.EnqueueBackgroundJobAsync(810, BackgroundJobKinds.YouTubeSummary, "{}", 42, 7);
-            await unitOfWork.MarkUpdateProcessedAsync(810);
+            await unitOfWork.EnqueueBackgroundJobAsync(810, BackgroundJobKinds.YouTubeSummary, "{}", ChatAddress.Telegram(42), 7);
+            await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, 810);
         }
 
         Assert.Null(await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now));
@@ -325,7 +325,7 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         await using (var unitOfWork = await Factory.BeginAsync())
         {
             var filename = await unitOfWork.ReserveFilenameAsync("some-video.md");
-            await unitOfWork.EnqueueWriteJobAsync(job.UpdateId, VaultLayout.FleetingFolder, filename, "the note", 42, 7);
+            await unitOfWork.EnqueueWriteJobAsync(job.UpdateId, VaultLayout.FleetingFolder, filename, "the note", ChatAddress.Telegram(42), 7);
             await unitOfWork.CompleteBackgroundJobAsync(job.Id);
             await unitOfWork.CommitAsync();
         }
@@ -369,14 +369,14 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
         await _services.GetRequiredService<StateMaintenance>().PruneAsync();
 
         await using var check = await Factory.BeginAsync();
-        Assert.False(await check.IsUpdateProcessedAsync(600));
+        Assert.False(await check.IsUpdateProcessedAsync(Channel.Telegram, 600));
     }
 
     private async Task<BackgroundJob> EnqueueBackgroundJobAsync(long updateId)
     {
         await using var unitOfWork = await Factory.BeginAsync();
-        await unitOfWork.EnqueueBackgroundJobAsync(updateId, BackgroundJobKinds.YouTubeSummary, """{"videoId":"qIeJ7Gw9v_I"}""", 42, 7);
-        await unitOfWork.MarkUpdateProcessedAsync(updateId);
+        await unitOfWork.EnqueueBackgroundJobAsync(updateId, BackgroundJobKinds.YouTubeSummary, """{"videoId":"qIeJ7Gw9v_I"}""", ChatAddress.Telegram(42), 7);
+        await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, updateId);
         await unitOfWork.CommitAsync();
 
         var jobs = await BackgroundJobs.GetNextPendingAsync(BackgroundJobKinds.YouTubeSummary, _time.Now);
@@ -388,14 +388,14 @@ public sealed class IngestPersistenceTests : IAsyncLifetime
     {
         await using var unitOfWork = await Factory.BeginAsync();
 
-        if (await unitOfWork.IsUpdateProcessedAsync(updateId))
+        if (await unitOfWork.IsUpdateProcessedAsync(Channel.Telegram, updateId))
         {
             return string.Empty;
         }
 
         var filename = await unitOfWork.ReserveFilenameAsync(baseFilename);
-        await unitOfWork.EnqueueWriteJobAsync(updateId, VaultLayout.FleetingFolder, filename, content, 42, 7);
-        await unitOfWork.MarkUpdateProcessedAsync(updateId);
+        await unitOfWork.EnqueueWriteJobAsync(updateId, VaultLayout.FleetingFolder, filename, content, ChatAddress.Telegram(42), 7);
+        await unitOfWork.MarkUpdateProcessedAsync(Channel.Telegram, updateId);
         await unitOfWork.SetTelegramOffsetAsync((int)updateId + 1);
         await unitOfWork.CommitAsync();
 
