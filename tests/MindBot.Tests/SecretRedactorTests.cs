@@ -94,4 +94,25 @@ public class SecretRedactorTests
 
         Assert.Equal(message, redactor.Redact(message));
     }
+
+    [Fact]
+    public void Redact_StripsWebDeviceTokens_WithoutKnowingWhichExist()
+    {
+        var redactor = new SecretRedactor(null);
+        var token = Core.Web.DeviceTokens.Generate();
+
+        var redacted = redactor.Redact($"Rejected header 'Bearer {token}' from 100.64.0.2");
+
+        Assert.DoesNotContain(token, redacted);
+        Assert.DoesNotContain(token[4..], redacted);
+        Assert.Contains("mbt_***", redacted);
+    }
+
+    [Fact]
+    public void Redact_StripsATruncatedDeviceToken()
+    {
+        var redactor = new SecretRedactor(null);
+
+        Assert.Equal("token mbt_*** cut", redactor.Redact("token mbt_AbCdEfGhIjKl cut"));
+    }
 }

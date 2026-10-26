@@ -1,5 +1,5 @@
-A self-hosted .NET Worker Service that turns Telegram messages into notes in
-an Obsidian vault backed by a Git repository. Runs via docker compose on a
+A self-hosted .NET Worker Service that turns chat messages (Telegram, or its own
+web chat API) into notes in an Obsidian vault backed by a Git repository. Runs via docker compose on a
 private Linux server. Target the current .NET LTS.
 
 # MindBot — Claude Code Guidelines
@@ -26,8 +26,23 @@ These are non-negotiable decisions. Do not substitute alternatives.
   rarely-exercised code and need tests, not confidence
 
 ### Telegram Integration
-- Access is via long polling with the **Telegram.Bot** NuGet package
-- **Do not use:** webhooks or other transport methods
+- Telegram is reached via long polling with the **Telegram.Bot** NuGet package
+- **Do not use:** Telegram webhooks or any other way of talking to Telegram
+- Telegram is optional: with `TELEGRAM__BOTTOKEN` unset, no client or poller is registered
+
+### Web Channel
+- The second channel is MindBot's own chat API (`src/MindBot.Bot/Web`) for a self-hosted chat
+  client. It exists so chats need not pass through Telegram
+- **Invariant:** The web port is reachable over the operator's VPN only (published to the host's
+  loopback, exposed with e.g. `tailscale serve`). Never publish it to the internet
+- **Invariant:** Every message, chat and job carries a `Channel`. Ids are only unique within a
+  channel; never compare or look up one without its channel
+- Accepting a web message is the same single ingest transaction as a Telegram update, with the
+  device-generated `clientMessageId` as the dedupe key. Sending is `POST /api/messages`; the
+  WebSocket only pushes
+- Device tokens (`mbt_…`) are stored as SHA-256 hashes only, travel in the `Authorization`
+  header or the WebSocket's first frame (never a URL), and are redacted by the log formatter
+- Operator alerts go to the Telegram operator chat if configured, otherwise into the web chat
 
 ### Configuration & Data
 - Frontmatter is serialized/deserialized with **YamlDotNet**
@@ -52,6 +67,7 @@ These are non-negotiable decisions. Do not substitute alternatives.
 ### Logging
 - **Invariant:** Never log a raw Telegram URL. Telegram embeds the bot token in file-download
   URLs (`https://api.telegram.org/file/bot<token>/...`)
+- **Invariant:** Never log a device token or message text that may quote vault content
 - Redaction belongs at the log formatter, not at call sites — the formatter is the single
   boundary every message passes through, including exceptions thrown inside Telegram.Bot
 
@@ -61,6 +77,12 @@ These are non-negotiable decisions. Do not substitute alternatives.
 - **Do not attempt:** to invoke Obsidian, its plugins, or its REST API
 - **Invariant:** No operation moves, renames, or deletes a note
   - This is by design, not an oversight — see project phase documentation
+
+## Documentation
+
+- **Keep `README.md` current in every phase.** Any change to behaviour, configuration,
+  deployment, commands, endpoints or security properties updates the README in the same PR
+- `CLAUDE.md` changes when a constraint or invariant changes, as above
 
 ## Before Implementation
 
