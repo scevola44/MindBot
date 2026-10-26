@@ -1,0 +1,58 @@
+name: Client CI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "client/**"
+      - ".github/workflows/client-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "client/**"
+      - ".github/workflows/client-ci.yml"
+
+defaults:
+  run:
+    working-directory: client
+
+env:
+  # Nothing about this repository is sent to Expo from CI.
+  EXPO_NO_TELEMETRY: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Current LTS (24, "Krypton"); newest release at least two weeks old when pinned.
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --ci
+
+      # The bot serves this export under a CSP that forbids inline script, so the build is
+      # checked for one here rather than discovered as a blank page after deploy.
+      - name: Build web export
+        run: |
+          npm run export:web
+          if grep -Eq '<script>|<script [^>]*>[^<]' dist/index.html; then
+            echo "dist/index.html contains an inline <script>, which the bot's CSP blocks." >&2
+            exit 1
+          fi

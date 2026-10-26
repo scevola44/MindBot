@@ -63,6 +63,9 @@ tests/
   MindBot.Tests/          xUnit tests, including git suites that run against a
                           real local bare repository and durability tests that
                           run against a real SQLite file.
+client/                   The chat client (Expo / React Native, TypeScript):
+                          one codebase for the web, iOS and Android. See
+                          [Web client](#web-client).
 ```
 
 Core/Infrastructure/Bot are separate projects (not just folders) so the
@@ -123,6 +126,14 @@ above, then:
 
 ```bash
 dotnet run --project src/MindBot.Bot
+```
+
+The client has its own toolchain (Node 22 or 24):
+
+```bash
+cd client
+npm ci
+npm run typecheck && npm run lint && npm test
 ```
 
 ## Running with Docker
@@ -315,9 +326,9 @@ tailscale serve --bg --https=443 http://127.0.0.1:8081
 `tailscale serve` also provides the HTTPS certificate. Responses carry a strict
 Content-Security-Policy, and API responses are never cached.
 
-> `docker-compose.yml` does not pass the `WEB__*` settings or publish the web
-> port yet; that arrives with the client. Until then the channel can be enabled
-> when running the bot directly.
+> `docker-compose.yml` does not pass the `WEB__*` settings, publish the web port
+> or bundle the web client yet; that arrives in the next deployment step. Until
+> then the channel can be enabled when running the bot directly.
 
 ### Devices
 
@@ -362,9 +373,57 @@ server → {"type":"message","message":{...}}    every line after "after", in id
 ```
 
 Every line is read from the stored history, so the stream is in id order with no
-gaps, and the highest id a client has seen is always a safe cursor to resume
-from. Late replies (`/ytsummary` results) and operator alerts are stored too, so
+gaps, and the highest id received **over the socket** is always a safe cursor to
+resume from. Do not resume from ids in a `POST /api/messages` response: they can
+be ahead of lines another device sent that are still on their way. Late replies (`/ytsummary` results) and operator alerts are stored too, so
 they reach a device that was offline when they happened.
+
+### Web client
+
+`client/` is the chat client: an [Expo](https://expo.dev) app (SDK 57, React
+Native 0.86) that runs in the browser now and on iOS and Android from the same
+code later.
+
+- **Setup**: paste a device token. On the web the server is the page's own
+  origin; on a phone you also enter the server address. The token is checked
+  with `GET /api/session` before it is saved.
+- **Chat**: messages, replies, late replies and alerts, live. Type `/` to see
+  the commands this server supports. Enter sends; Shift+Enter is a new line.
+- **Offline**: a message is saved on the device before it is sent and shows as
+  *Sending…* until the server confirms it. It survives closing the app, is
+  retried with the same `clientMessageId` (so it can never file a note twice),
+  and messages always go out in the order you wrote them — a `/new` note's name
+  before its content.
+- **Revoked token**: the app returns to setup and says why. Unsent messages are
+  kept and go out after you reconnect.
+
+Where the token lives: the iOS Keychain or Android Keystore on a phone
+(`expo-secure-store`); `localStorage` in a browser, which has nothing better.
+Any script on the page could read it there, which is why the bot serves the
+client itself under a CSP that only allows its own scripts, and the page loads
+nothing from anywhere else. The chat history is *not* stored on the device —
+only messages still waiting to be sent — so note content does not sit in
+browser storage.
+
+**Serving it.** Build the web export and point the bot at it:
+
+```bash
+cd client && npm ci && npm run export:web     # writes client/dist
+WEB__STATICROOT=/absolute/path/to/client/dist # then start the bot
+```
+
+Then open the web port (over the VPN) in a browser.
+
+**On a phone (development).** With Tailscale on, run `npx expo start` in
+`client/` and open the project in [Expo Go](https://expo.dev/go), or in a
+development build. Enter the server's `https://….ts.net` address and a token.
+There are no installable app builds yet. Building them with Expo's cloud service
+(EAS) is deliberately not used: it uploads the source to Expo's servers.
+
+**Versions.** Expo SDK 58 is current, but every 58 release more than two weeks
+old ships a React Native release candidate, so the client starts on SDK 57.
+Install packages with `npx expo install` (SDK-matched versions), never plain
+`npm install <pkg>`.
 
 ## Health endpoint
 
