@@ -1,4 +1,6 @@
 using MindBot.Core.Durability;
+using MindBot.Core.Options;
+using Microsoft.Extensions.Options;
 
 namespace MindBot.Core.Health;
 
@@ -13,7 +15,8 @@ public sealed record HealthReportPayload(
     bool WorkingTreeDirty,
     string? LastClassification,
     bool StateStoreReachable,
-    bool PollStalled);
+    bool PollStalled,
+    bool TelegramEnabled);
 
 /// <summary>
 /// Builds the same health payload the /health endpoint serves, extracted so both the HTTP endpoint
@@ -21,8 +24,15 @@ public sealed record HealthReportPayload(
 /// probes the write-job queue -- never touches git or the filesystem, so a /status reply can never
 /// trigger either.
 /// </summary>
-public sealed class HealthReportService(HealthSnapshot health, IWriteJobQueue jobQueue, TimeProvider timeProvider)
+public sealed class HealthReportService(
+    HealthSnapshot health,
+    IWriteJobQueue jobQueue,
+    TimeProvider timeProvider,
+    IOptions<TelegramOptions>? telegramOptions = null)
 {
+    // Null only in tests that predate optional Telegram, which all assumed it was on.
+    private readonly bool _telegramEnabled = telegramOptions?.Value.IsEnabled ?? true;
+
     // 3x the 30s long-poll timeout: one missed cycle is normal, three is not.
     private static readonly TimeSpan PollStallThreshold = TimeSpan.FromSeconds(180);
 
@@ -44,8 +54,9 @@ public sealed class HealthReportService(HealthSnapshot health, IWriteJobQueue jo
             stateStoreReachable = false;
         }
 
+        // With Telegram off there is no poller, and "no poll for three minutes" is just the normal state.
         var lastPollOrStartup = report.LastSuccessfulPollAt ?? _processStartedAt;
-        var pollStalled = now - lastPollOrStartup > PollStallThreshold;
+        var pollStalled = _telegramEnabled && now - lastPollOrStartup > PollStallThreshold;
         var healthy = stateStoreReachable && !pollStalled;
 
         return new HealthReportPayload(
@@ -58,6 +69,7 @@ public sealed class HealthReportService(HealthSnapshot health, IWriteJobQueue jo
             report.WorkingTreeDirty,
             report.LastClassification,
             stateStoreReachable,
-            pollStalled);
+            pollStalled,
+            _telegramEnabled);
     }
 }

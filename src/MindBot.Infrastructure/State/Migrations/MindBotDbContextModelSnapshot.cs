@@ -14,7 +14,7 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
 {
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
+        modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
         modelBuilder.Entity("MindBot.Infrastructure.State.BackgroundJobEntity", b =>
             {
@@ -86,6 +86,41 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("Conversations", (string)null);
             });
 
+        modelBuilder.Entity("MindBot.Infrastructure.State.DeviceTokenEntity", b =>
+            {
+                b.Property<long>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("INTEGER");
+
+                b.Property<DateTimeOffset>("CreatedAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTimeOffset?>("LastSeenAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTimeOffset?>("RevokedAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("TokenHash")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.HasIndex("Name")
+                    .IsUnique()
+                    .HasFilter("\"RevokedAt\" IS NULL");
+
+                b.HasIndex("TokenHash")
+                    .IsUnique();
+
+                b.ToTable("DeviceTokens", (string)null);
+            });
+
         modelBuilder.Entity("MindBot.Infrastructure.State.ProcessedUpdateEntity", b =>
             {
                 b.Property<int>("Channel")
@@ -121,6 +156,39 @@ partial class MindBotDbContextModelSnapshot : ModelSnapshot
                 b.HasKey("Id");
 
                 b.ToTable("RepositoryState", (string)null);
+            });
+
+        modelBuilder.Entity("MindBot.Infrastructure.State.WebMessageEntity", b =>
+            {
+                b.Property<long>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("INTEGER")
+                    .HasAnnotation("Sqlite:Autoincrement", true);
+
+                b.Property<string>("ClientMessageId")
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTimeOffset>("CreatedAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<int>("Direction")
+                    .HasColumnType("INTEGER");
+
+                b.Property<long?>("InReplyToId")
+                    .HasColumnType("INTEGER");
+
+                b.Property<string>("Text")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.HasIndex("ClientMessageId")
+                    .IsUnique();
+
+                b.HasIndex("InReplyToId");
+
+                b.ToTable("WebMessages", (string)null);
             });
 
         modelBuilder.Entity("MindBot.Infrastructure.State.WriteJobEntity", b =>

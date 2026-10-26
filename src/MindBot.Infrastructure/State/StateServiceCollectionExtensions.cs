@@ -1,5 +1,6 @@
 using MindBot.Core.Durability;
 using MindBot.Core.Options;
+using MindBot.Core.Web;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +23,12 @@ public static class StateServiceCollectionExtensions
             options.UseSqlite(BuildConnectionString(stateOptions.DatabasePath));
         });
 
-        services.AddSingleton<IIngestUnitOfWorkFactory, EfIngestUnitOfWorkFactory>();
+        // One instance behind both interfaces: Telegram and web ingest share the same transaction type.
+        services.AddSingleton<EfIngestUnitOfWorkFactory>();
+        services.AddSingleton<IIngestUnitOfWorkFactory>(sp => sp.GetRequiredService<EfIngestUnitOfWorkFactory>());
+        services.AddSingleton<IWebIngestUnitOfWorkFactory>(sp => sp.GetRequiredService<EfIngestUnitOfWorkFactory>());
+        services.AddSingleton<IWebTranscript, EfWebTranscript>();
+        services.AddSingleton<IDeviceTokenStore, EfDeviceTokenStore>();
         services.AddSingleton<IWriteJobQueue, EfWriteJobQueue>();
         services.AddSingleton<IBackgroundJobQueue, EfBackgroundJobQueue>();
         services.AddSingleton<IRepositoryStateStore, EfRepositoryStateStore>();

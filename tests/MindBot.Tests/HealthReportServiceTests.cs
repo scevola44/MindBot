@@ -72,4 +72,23 @@ public class HealthReportServiceTests
 
         Assert.Equal(2, payload.QueueDepth);
     }
+
+    [Fact]
+    public async Task BuildAsync_WithTelegramDisabled_NeverReportsAStalledPoll()
+    {
+        var timeProvider = new FixedTimeProvider(new DateTimeOffset(2026, 7, 30, 9, 0, 0, TimeSpan.Zero));
+        var service = new HealthReportService(
+            new HealthSnapshot(),
+            new InMemoryWriteJobQueue(),
+            timeProvider,
+            Microsoft.Extensions.Options.Options.Create(new Core.Options.TelegramOptions()));
+
+        // No poller exists, so "no poll for an hour" is the normal state, not a fault.
+        timeProvider.Now = timeProvider.Now.AddHours(1);
+        var payload = await service.BuildAsync();
+
+        Assert.False(payload.PollStalled);
+        Assert.False(payload.TelegramEnabled);
+        Assert.Equal("healthy", payload.Status);
+    }
 }

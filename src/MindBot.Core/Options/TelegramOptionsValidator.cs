@@ -8,14 +8,16 @@ public sealed class TelegramOptionsValidator : IValidateOptions<TelegramOptions>
     {
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(options.BotToken))
+        // No token means the Telegram channel is off. Whether some channel is on is checked by
+        // WebOptionsValidator, which can see both.
+        if (!options.IsEnabled)
         {
-            errors.Add("TELEGRAM__BOTTOKEN is required but was not set.");
+            return ValidateOptionsResult.Success;
         }
 
         if (string.IsNullOrWhiteSpace(options.AllowedUserIds))
         {
-            errors.Add("TELEGRAM__ALLOWEDUSERIDS is required but was not set.");
+            errors.Add("TELEGRAM__ALLOWEDUSERIDS is required when TELEGRAM__BOTTOKEN is set, but was not set.");
         }
         else
         {

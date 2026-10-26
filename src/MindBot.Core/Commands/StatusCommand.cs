@@ -19,7 +19,7 @@ public sealed class StatusCommand(HealthReportService healthReportService) : ICo
 
         var text = $"""
             Status: {payload.Status}{(payload.Degraded ? " (degraded)" : "")}
-            Last poll: {Format(payload.LastSuccessfulPollUtc)}
+            Last poll: {(payload.TelegramEnabled ? Format(payload.LastSuccessfulPollUtc) : "Telegram disabled")}
             Last push: {Format(payload.LastSuccessfulPushUtc)}
             Queue depth: {payload.QueueDepth}
             Unpushed commits: {payload.UnpushedCommitCount}

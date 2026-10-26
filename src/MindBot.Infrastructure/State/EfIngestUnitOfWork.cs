@@ -1,6 +1,7 @@
 using MindBot.Core.Durability;
 using MindBot.Core.Notes;
 using MindBot.Core.Options;
+using MindBot.Core.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
@@ -11,9 +12,17 @@ public sealed class EfIngestUnitOfWorkFactory(
     IDbContextFactory<MindBotDbContext> dbContextFactory,
     IOptions<VaultOptions> vaultOptions,
     IOptions<StateOptions> stateOptions,
-    TimeProvider timeProvider) : IIngestUnitOfWorkFactory
+    TimeProvider timeProvider) : IIngestUnitOfWorkFactory, IWebIngestUnitOfWorkFactory
 {
-    public async Task<IIngestUnitOfWork> BeginAsync(CancellationToken cancellationToken = default)
+    public async Task<IIngestUnitOfWork> BeginAsync(CancellationToken cancellationToken = default) =>
+        await BeginWebAsync(cancellationToken);
+
+    /// <summary>
+    /// Microsoft.Data.Sqlite opens a non-deferred transaction as BEGIN IMMEDIATE, so the write
+    /// lock is held from the first statement. That is what makes "is this id already processed?"
+    /// race-free: a concurrent duplicate waits for this transaction to commit, then sees its rows.
+    /// </summary>
+    public async Task<IWebIngestUnitOfWork> BeginWebAsync(CancellationToken cancellationToken = default)
     {
         var db = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         try
@@ -39,7 +48,7 @@ public sealed class EfIngestUnitOfWork(
     IDbContextTransaction transaction,
     VaultOptions vaultOptions,
     StateOptions stateOptions,
-    TimeProvider timeProvider) : IIngestUnitOfWork
+    TimeProvider timeProvider) : IWebIngestUnitOfWork
 {
     private bool _committed;
 
@@ -228,6 +237,39 @@ public sealed class EfIngestUnitOfWork(
 
         state.LastTelegramOffset = offset;
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<WebMessage?> FindInboundAsync(string clientMessageId, CancellationToken cancellationToken = default) =>
+        (await db.WebMessages
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.ClientMessageId == clientMessageId, cancellationToken))?.ToDomain();
+
+    public async Task<WebMessage?> FindReplyAsync(long inboundId, CancellationToken cancellationToken = default) =>
+        (await db.WebMessages
+            .AsNoTracking()
+            .Where(m => m.InReplyToId == inboundId)
+            .OrderBy(m => m.Id)
+            .FirstOrDefaultAsync(cancellationToken))?.ToDomain();
+
+    public async Task<WebMessage> AppendAsync(
+        WebMessageDirection direction,
+        string text,
+        string? clientMessageId = null,
+        long? inReplyToId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = new WebMessageEntity
+        {
+            ClientMessageId = clientMessageId,
+            Direction = direction,
+            Text = text,
+            CreatedAt = timeProvider.GetUtcNow(),
+            InReplyToId = inReplyToId,
+        };
+
+        db.WebMessages.Add(entity);
+        await db.SaveChangesAsync(cancellationToken);
+        return entity.ToDomain();
     }
 
     private Task<ConversationStateEntity?> FindConversationAsync(ChatAddress chat, CancellationToken cancellationToken) =>

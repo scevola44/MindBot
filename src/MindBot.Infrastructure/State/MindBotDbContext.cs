@@ -14,6 +14,10 @@ public sealed class MindBotDbContext(DbContextOptions<MindBotDbContext> options)
 
     public DbSet<RepositoryStateEntity> RepositoryState => Set<RepositoryStateEntity>();
 
+    public DbSet<WebMessageEntity> WebMessages => Set<WebMessageEntity>();
+
+    public DbSet<DeviceTokenEntity> DeviceTokens => Set<DeviceTokenEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ProcessedUpdateEntity>(entity =>
@@ -78,6 +82,41 @@ public sealed class MindBotDbContext(DbContextOptions<MindBotDbContext> options)
             entity.Property(e => e.Stage).IsRequired();
             entity.Property(e => e.PendingNoteName);
             entity.Property(e => e.UpdatedAt).IsRequired();
+        });
+
+        modelBuilder.Entity<WebMessageEntity>(entity =>
+        {
+            entity.ToTable("WebMessages");
+            entity.HasKey(e => e.Id);
+            // AUTOINCREMENT, not just INTEGER PRIMARY KEY: ids are the clients' sync cursor, so an
+            // id freed by pruning must never be handed out again.
+            entity.Property(e => e.Id).ValueGeneratedOnAdd().HasAnnotation("Sqlite:Autoincrement", true);
+            entity.Property(e => e.ClientMessageId);
+            entity.Property(e => e.Direction).IsRequired();
+            entity.Property(e => e.Text).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.InReplyToId);
+
+            // The web channel's duplicate guard. Outbound lines have no client id, and SQLite
+            // treats NULLs as distinct, so they never collide.
+            entity.HasIndex(e => e.ClientMessageId).IsUnique();
+            entity.HasIndex(e => e.InReplyToId);
+        });
+
+        modelBuilder.Entity<DeviceTokenEntity>(entity =>
+        {
+            entity.ToTable("DeviceTokens");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).IsRequired();
+            entity.Property(e => e.TokenHash).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.LastSeenAt);
+            entity.Property(e => e.RevokedAt);
+
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            // A name is unique among active devices only, so a revoked name can be reused.
+            entity.HasIndex(e => e.Name).IsUnique().HasFilter("\"RevokedAt\" IS NULL");
         });
 
         modelBuilder.Entity<RepositoryStateEntity>(entity =>

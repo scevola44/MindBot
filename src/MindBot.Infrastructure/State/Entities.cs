@@ -1,4 +1,5 @@
 using MindBot.Core.Durability;
+using MindBot.Core.Web;
 
 namespace MindBot.Infrastructure.State;
 
@@ -102,4 +103,45 @@ public sealed class RepositoryStateEntity
     public int LastTelegramOffset { get; set; }
 
     public DateTimeOffset? LastSuccessfulPushAt { get; set; }
+}
+
+/// <summary>
+/// One line of the web transcript. Doubles as the web channel's outbox: a deferred reply is
+/// written here and waits for the client to sync, so it survives the client being offline.
+/// </summary>
+public sealed class WebMessageEntity
+{
+    public long Id { get; set; }
+
+    /// <summary>The device-generated id of an inbound message; unique, and the web channel's dedupe key.</summary>
+    public string? ClientMessageId { get; set; }
+
+    public WebMessageDirection Direction { get; set; }
+
+    public string Text { get; set; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>For an immediate reply, the inbound line it answers, so a retried send can return it.</summary>
+    public long? InReplyToId { get; set; }
+
+    public WebMessage ToDomain() => new(Id, ClientMessageId, Direction, Text, CreatedAt, InReplyToId);
+}
+
+/// <summary>A device allowed to use the web channel. Only the token's SHA-256 hash is stored.</summary>
+public sealed class DeviceTokenEntity
+{
+    public long Id { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public string TokenHash { get; set; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset? LastSeenAt { get; set; }
+
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    public DeviceInfo ToDomain() => new(Id, Name, CreatedAt, LastSeenAt, RevokedAt);
 }

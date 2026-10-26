@@ -14,10 +14,12 @@ namespace MindBot.Infrastructure.State;
 public sealed class StateMaintenance(
     IDbContextFactory<MindBotDbContext> dbContextFactory,
     IOptions<StateOptions> stateOptions,
+    IOptions<WebOptions> webOptions,
     TimeProvider timeProvider,
     ILogger<StateMaintenance> logger)
 {
     private readonly StateOptions _stateOptions = stateOptions.Value;
+    private readonly WebOptions _webOptions = webOptions.Value;
 
     public async Task PruneAsync(CancellationToken cancellationToken = default)
     {
@@ -59,17 +61,26 @@ public sealed class StateMaintenance(
             .ToList();
         db.Conversations.RemoveRange(staleConversations);
 
-        var prunedCount = staleUpdates.Count + staleJobs.Count + staleBackgroundJobs.Count + staleConversations.Count;
+        // Replies can quote vault content, so the transcript is not kept forever. Ids are
+        // AUTOINCREMENT, so pruning never lets a later message reuse a client's sync cursor.
+        var historyCutoff = now - TimeSpan.FromDays(_webOptions.HistoryRetentionDays);
+        var staleWebMessages = (await db.WebMessages.ToListAsync(cancellationToken))
+            .Where(m => m.CreatedAt < historyCutoff)
+            .ToList();
+        db.WebMessages.RemoveRange(staleWebMessages);
+
+        var prunedCount = staleUpdates.Count + staleJobs.Count + staleBackgroundJobs.Count + staleConversations.Count + staleWebMessages.Count;
         if (prunedCount > 0)
         {
             await db.SaveChangesAsync(cancellationToken);
 
             logger.LogInformation(
-                "Pruned durability state: {Updates} processed update(s), {Jobs} completed job(s), {BackgroundJobs} finished background job(s), {Conversations} expired conversation(s).",
+                "Pruned durability state: {Updates} processed update(s), {Jobs} completed job(s), {BackgroundJobs} finished background job(s), {Conversations} expired conversation(s), {WebMessages} web message(s).",
                 staleUpdates.Count,
                 staleJobs.Count,
                 staleBackgroundJobs.Count,
-                staleConversations.Count);
+                staleConversations.Count,
+                staleWebMessages.Count);
         }
     }
 }

@@ -8,14 +8,15 @@ public class TelegramOptionsValidatorTests
     private readonly TelegramOptionsValidator _validator = new();
 
     [Fact]
-    public void Validate_MissingBotToken_Fails()
+    public void Validate_NoBotToken_MeansTelegramIsOff_AndSucceeds()
     {
-        var options = new TelegramOptions { BotToken = "", AllowedUserIds = "123" };
+        // Telegram is optional now. Whether *some* channel is on is WebOptionsValidator's job.
+        var options = new TelegramOptions { BotToken = "", AllowedUserIds = "" };
 
         var result = _validator.Validate(null, options);
 
-        Assert.True(result.Failed);
-        Assert.Contains(result.Failures, f => f.Contains("TELEGRAM__BOTTOKEN"));
+        Assert.False(result.Failed);
+        Assert.False(options.IsEnabled);
     }
 
     [Fact]
@@ -355,4 +356,45 @@ public class N8nOptionsValidatorTests
         Assert.True(result.Failed);
         Assert.Contains(result.Failures, f => f.Contains("N8N__TIMEOUTSECONDS"));
     }
+}
+
+public class WebOptionsValidatorTests
+{
+    private static ValidateOptionsResult Validate(WebOptions web, string telegramToken = "") =>
+        new WebOptionsValidator(Microsoft.Extensions.Options.Options.Create(new TelegramOptions { BotToken = telegramToken, AllowedUserIds = "1" }))
+            .Validate(null, web);
+
+    [Fact]
+    public void NoChannelAtAll_FailsWithAnActionableMessage()
+    {
+        var result = Validate(new WebOptions { Enabled = false });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("TELEGRAM__BOTTOKEN") && f.Contains("WEB__ENABLED"));
+    }
+
+    [Fact]
+    public void TelegramOnly_Succeeds() => Assert.False(Validate(new WebOptions { Enabled = false }, telegramToken: "abc").Failed);
+
+    [Fact]
+    public void WebOnly_Succeeds() => Assert.False(Validate(new WebOptions { Enabled = true }).Failed);
+
+    [Fact]
+    public void BothChannels_Succeed() => Assert.False(Validate(new WebOptions { Enabled = true }, telegramToken: "abc").Failed);
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(70000)]
+    [InlineData(WebOptions.HealthPort)]
+    public void AnUnusablePort_Fails(int port)
+    {
+        var result = Validate(new WebOptions { Enabled = true, Port = port });
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("WEB__PORT"));
+    }
+
+    [Fact]
+    public void ARelativeStaticRoot_Fails() =>
+        Assert.True(Validate(new WebOptions { Enabled = true, StaticRoot = "wwwroot" }).Failed);
 }
