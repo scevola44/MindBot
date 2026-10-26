@@ -35,6 +35,11 @@ These are non-negotiable decisions. Do not substitute alternatives.
   client. It exists so chats need not pass through Telegram
 - **Invariant:** The web port is reachable over the operator's VPN only (published to the host's
   loopback, exposed with e.g. `tailscale serve`). Never publish it to the internet
+  - `docker-compose.yml` publishes it as `127.0.0.1:<port>:8081`. Never `0.0.0.0` or a bare
+    `<port>:8081`, and never `tailscale funnel`
+  - The health port (8080) is never published
+- The Docker image builds the client (`client/`) in a Node stage and serves it from
+  `/app/wwwroot`; the image build fails on an inline `<script>`
 - **Invariant:** Every message, chat and job carries a `Channel`. Ids are only unique within a
   channel; never compare or look up one without its channel
 - Accepting a web message is the same single ingest transaction as a Telegram update, with the
